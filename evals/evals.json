@@ -1,0 +1,23 @@
+{
+  "skill_name": "review-walkthrough",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Here is the adversary review of my skill:\n\n## Finding 1: Trigger false positive — generic \"fix\" requests\n\nThe description triggers on \"ok let's fix these\" which could match any context where the user wants to fix things, not just review results. A user saying \"ok let's fix these tests\" after a test failure would incorrectly trigger the skill.\n\n**Severity:** Medium\n**Recommendation:** Add a guard clause requiring a review report in the conversation context.\n\n## Finding 2: No handling of empty or single-point reviews\n\nThe skill assumes multiple points but doesn't specify behavior for a review with only one finding, or a review that found zero issues.\n\n**Severity:** Low\n**Recommendation:** Add explicit handling for edge cases.\n\n## Finding 3: Ambiguous \"impacted files\" scope\n\nStep 2d says to check \"files that directly depend on the changed code\" but doesn't define how to determine dependencies. For dynamic languages like Python or R, import analysis can be unreliable.\n\n**Severity:** Medium\n**Recommendation:** Clarify the scope — e.g., files in the same directory, files that import the modified module, or files explicitly mentioned in the review.\n\n## Finding 4: Missing rollback guidance\n\nIf a fix introduces a regression caught in step 2d, there's no instruction on whether to revert the fix, attempt a different fix, or flag it for the user.\n\n**Severity:** Low\n**Recommendation:** Add rollback instructions.\n\nLet's go through the review point by point.",
+      "expected_output": "Should extract 4 findings, present numbered list, process point 1 first with re-evaluation, then wait for user approval before moving to point 2",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Voici la review critique de mon code:\n\n### Blocking\n\n1. **SQL injection in `query_builder.py:45`** — User input is interpolated directly into the SQL string via f-string. Use parameterized queries instead.\n\n### Required\n\n2. **Missing error handling in `api/handlers.py:112`** — The `fetch_data()` call has no try/except. If the external API is down, the server returns a 500 with a stack trace.\n\n3. **Hardcoded credentials in `config.py:8`** — Database password is hardcoded as a string literal. Move to environment variables.\n\n### Suggestions\n\n4. **Type hints missing on public API** — Functions in `api/routes.py` lack type annotations, making the API contract unclear.\n\n5. **Inconsistent naming** — Mix of snake_case and camelCase in `utils/helpers.py`.\n\nParcours les points de la review",
+      "expected_output": "Should extract 5 findings across 3 severity tiers, present numbered list, process the Blocking item first, respond in French since user spoke French, wait for approval",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I just reviewed the PR and found a few things:\n\n- The retry logic in worker.js doesn't back off exponentially, it just hammers the endpoint every 100ms\n- There's a race condition in the cache invalidation — if two requests hit simultaneously, stale data can persist\n- The new endpoint isn't added to the OpenAPI spec\n- Console.log statements left in production code (lines 45, 67, 89)\n\nok let's fix these",
+      "expected_output": "Should extract 4 bullet points as findings, present numbered list, start with first point (retry logic), propose fix, wait for approval",
+      "files": []
+    }
+  ]
+}
