@@ -43,7 +43,7 @@ Assess the finding critically and honestly:
 - Is the suggested fix (if any) the right approach?
 - If the finding does not propose a concrete fix, formulate one yourself. A finding without an actionable remedy is noise — turn "potential issue with X" into "do Y at line Z to fix X".
 
-**Author's defense.** For findings classified as Blocking or Required (or equivalent high-severity): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers.
+**Author's defense.** For findings explicitly classified as Blocking, Required, Critical, or Major by the review report (the report must use one of these exact tier names — do not infer severity from tone or wording alone; labels like Warning, Suggestion, Minor, Low, Medium, or Info do NOT qualify): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers.
 
 State your assessment clearly. If the point is invalid or not worth fixing, say so with a short explanation. The user decides whether to skip it or act on it anyway. If the user chooses to act on a point you assessed as invalid, apply the fix without further pushback — your role is advisory.
 
@@ -86,12 +86,13 @@ Before asking for approval, explicitly assign a status to this finding:
 
 The user has the final say — if they disagree with your proposed status, update it without pushback.
 
-After presenting your assessment, status, and any changes, stop and ask the user before moving to the next point. Use a brief prompt like:
+After presenting your assessment, status, and any changes, **always** stop and ask the user before moving to the next point — regardless of the status assigned (including DEFERRED). Use a brief prompt like:
 
 - "Next point?" / "On passe au suivant ?"
 - Or if a fix was applied: "Fix applied — ACCEPTED. OK to move on?" / "Correction faite — ACCEPTED. On continue ?"
+- Or if deferred: "DEFERRED — [reason]. Move to the next point?" / "DEFERRED — [raison]. On passe au suivant ?"
 
-Never auto-advance. The user might want to discuss, adjust, or revert before proceeding.
+Never auto-advance. Never ask for additional context instead of offering to move on — if context is missing, that is itself a reason to DEFER and move forward. The user might want to discuss, adjust, or revert before proceeding.
 
 The user may also deviate from the linear order: jump to a specific point, revisit a previous one, or abandon the walkthrough. Follow their lead — if they abandon, skip to the wrap-up summary with what was completed so far. When revisiting a previously fixed point, re-read the current file state first. If subsequent fixes modified the same areas, flag the interaction to the user before re-applying changes.
 

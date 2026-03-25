@@ -3,51 +3,107 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Here is the adversary review of my skill:\n\n## Finding 1: Trigger false positive — generic \"fix\" requests\n\nThe description triggers on \"ok let's fix these\" which could match any context where the user wants to fix things, not just review results. A user saying \"ok let's fix these tests\" after a test failure would incorrectly trigger the skill.\n\n**Severity:** Medium\n**Recommendation:** Add a guard clause requiring a review report in the conversation context.\n\n## Finding 2: No handling of empty or single-point reviews\n\nThe skill assumes multiple points but doesn't specify behavior for a review with only one finding, or a review that found zero issues.\n\n**Severity:** Low\n**Recommendation:** Add explicit handling for edge cases.\n\n## Finding 3: Ambiguous \"impacted files\" scope\n\nStep 2d says to check \"files that directly depend on the changed code\" but doesn't define how to determine dependencies. For dynamic languages like Python or R, import analysis can be unreliable.\n\n**Severity:** Medium\n**Recommendation:** Clarify the scope — e.g., files in the same directory, files that import the modified module, or files explicitly mentioned in the review.\n\n## Finding 4: Missing rollback guidance\n\nIf a fix introduces a regression caught in step 2d, there's no instruction on whether to revert the fix, attempt a different fix, or flag it for the user.\n\n**Severity:** Low\n**Recommendation:** Add rollback instructions.\n\nLet's go through the review point by point.",
+      "prompt": "Here is the adversary review of my skill:\n\n## Finding 1: Trigger false positive \u2014 generic \"fix\" requests\n\nThe description triggers on \"ok let's fix these\" which could match any context where the user wants to fix things, not just review results. A user saying \"ok let's fix these tests\" after a test failure would incorrectly trigger the skill.\n\n**Severity:** Medium\n**Recommendation:** Add a guard clause requiring a review report in the conversation context.\n\n## Finding 2: No handling of empty or single-point reviews\n\nThe skill assumes multiple points but doesn't specify behavior for a review with only one finding, or a review that found zero issues.\n\n**Severity:** Low\n**Recommendation:** Add explicit handling for edge cases.\n\n## Finding 3: Ambiguous \"impacted files\" scope\n\nStep 2d says to check \"files that directly depend on the changed code\" but doesn't define how to determine dependencies. For dynamic languages like Python or R, import analysis can be unreliable.\n\n**Severity:** Medium\n**Recommendation:** Clarify the scope \u2014 e.g., files in the same directory, files that import the modified module, or files explicitly mentioned in the review.\n\n## Finding 4: Missing rollback guidance\n\nIf a fix introduces a regression caught in step 2d, there's no instruction on whether to revert the fix, attempt a different fix, or flag it for the user.\n\n**Severity:** Low\n**Recommendation:** Add rollback instructions.\n\nLet's go through the review point by point.",
       "expected_output": "Should extract 4 findings, state total count, process point 1 first with re-evaluation including code-first assessment, assign an explicit status (ACCEPTED/REJECTED/DEFERRED/NOTED), then wait for user approval before moving to point 2",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response states the total count (4 points) but does NOT produce an upfront numbered list of all findings",
+        "Response processes only Finding 1 in detail \u2014 Findings 2-4 are not developed or fixed in this response",
+        "Response re-evaluates Finding 1 starting from the skill/code, not just rubber-stamping the reviewer",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to Finding 1",
+        "Response includes a prompt like 'Next point?' or similar invitation for the user to continue"
+      ]
     },
     {
       "id": 2,
-      "prompt": "Voici la review critique de mon code:\n\n### Blocking\n\n1. **SQL injection in `query_builder.py:45`** — User input is interpolated directly into the SQL string via f-string. Use parameterized queries instead.\n\n### Required\n\n2. **Missing error handling in `api/handlers.py:112`** — The `fetch_data()` call has no try/except. If the external API is down, the server returns a 500 with a stack trace.\n\n3. **Hardcoded credentials in `config.py:8`** — Database password is hardcoded as a string literal. Move to environment variables.\n\n### Suggestions\n\n4. **Type hints missing on public API** — Functions in `api/routes.py` lack type annotations, making the API contract unclear.\n\n5. **Inconsistent naming** — Mix of snake_case and camelCase in `utils/helpers.py`.\n\nParcours les points de la review",
+      "prompt": "Voici la review critique de mon code:\n\n### Blocking\n\n1. **SQL injection in `query_builder.py:45`** \u2014 User input is interpolated directly into the SQL string via f-string. Use parameterized queries instead.\n\n### Required\n\n2. **Missing error handling in `api/handlers.py:112`** \u2014 The `fetch_data()` call has no try/except. If the external API is down, the server returns a 500 with a stack trace.\n\n3. **Hardcoded credentials in `config.py:8`** \u2014 Database password is hardcoded as a string literal. Move to environment variables.\n\n### Suggestions\n\n4. **Type hints missing on public API** \u2014 Functions in `api/routes.py` lack type annotations, making the API contract unclear.\n\n5. **Inconsistent naming** \u2014 Mix of snake_case and camelCase in `utils/helpers.py`.\n\nParcours les points de la review",
       "expected_output": "Should extract 5 findings across 3 severity tiers, reorder to process Blocking first (SQL injection) then Required then Suggestions, respond in French, include author's defense for the Blocking finding, assign explicit status, wait for approval",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response is in French throughout",
+        "Response states total count (5 points) without listing all findings upfront",
+        "Response processes the Blocking finding (SQL injection) first",
+        "Response generates an author's defense for the Blocking finding before concluding it is valid",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to the first finding",
+        "Response asks for approval before moving to the next point"
+      ]
     },
     {
       "id": 3,
-      "prompt": "I just reviewed the PR and found a few things:\n\n- The retry logic in worker.js doesn't back off exponentially, it just hammers the endpoint every 100ms\n- There's a race condition in the cache invalidation — if two requests hit simultaneously, stale data can persist\n- The new endpoint isn't added to the OpenAPI spec\n- Console.log statements left in production code (lines 45, 67, 89)\n\nok let's fix these",
+      "prompt": "I just reviewed the PR and found a few things:\n\n- The retry logic in worker.js doesn't back off exponentially, it just hammers the endpoint every 100ms\n- There's a race condition in the cache invalidation \u2014 if two requests hit simultaneously, stale data can persist\n- The new endpoint isn't added to the OpenAPI spec\n- Console.log statements left in production code (lines 45, 67, 89)\n\nok let's fix these",
       "expected_output": "Should extract 4 bullet points as findings, process in order (no severity tiers present), start with first point (retry logic), propose fix, assign explicit status, wait for approval",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response states total count (4 points) without listing all findings upfront",
+        "Response processes only the first bullet (retry logic) in detail \u2014 other bullets are not developed",
+        "Response re-evaluates the retry finding independently before proposing a fix",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to the first finding",
+        "Response asks for user approval before moving to the next point",
+        "Response does NOT generate an author's defense (no Blocking/Required severity tier present)"
+      ]
     },
     {
       "id": 4,
-      "prompt": "Here's the critical review:\n\n### Critical\n\n1. **Data leakage** — `StandardScaler` is fit on the full dataset at line 23 before train/test split at line 31. The scaler learns test set statistics.\n\n### Suggestions\n\n2. **Magic number** — The threshold `0.85` at line 45 should be a named constant.\n\n3. **Missing docstring** — `process_batch()` has no documentation.\n\n### Required\n\n4. **No seed set** — `train_test_split()` at line 31 has no `random_state`, results are not reproducible.\n\nLet's walk through these",
+      "prompt": "Here's the critical review:\n\n### Critical\n\n1. **Data leakage** \u2014 `StandardScaler` is fit on the full dataset at line 23 before train/test split at line 31. The scaler learns test set statistics.\n\n### Suggestions\n\n2. **Magic number** \u2014 The threshold `0.85` at line 45 should be a named constant.\n\n3. **Missing docstring** \u2014 `process_batch()` has no documentation.\n\n### Required\n\n4. **No seed set** \u2014 `train_test_split()` at line 31 has no `random_state`, results are not reproducible.\n\nLet's walk through these",
       "expected_output": "Should reorder by severity: Critical (data leakage) first, then Required (no seed), then Suggestions (magic number, docstring). Must NOT process in the original order 1-2-3-4. Should include author's defense for the Critical finding.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response processes the Critical finding (data leakage) first",
+        "Response indicates that finding 4 (Required: no seed) will be processed BEFORE findings 2 and 3 (Suggestions)",
+        "Response generates an author's defense for the Critical finding (data leakage)",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to the Critical finding",
+        "Response asks for approval before moving on"
+      ]
     },
     {
       "id": 5,
-      "prompt": "Voici le rapport de review:\n\n## Résultat\n\nAucun problème détecté. Le code est propre, bien structuré et conforme aux conventions du projet.\n\nOn fait le walkthrough",
+      "prompt": "Voici le rapport de review:\n\n## R\u00e9sultat\n\nAucun probl\u00e8me d\u00e9tect\u00e9. Le code est propre, bien structur\u00e9 et conforme aux conventions du projet.\n\nOn fait le walkthrough",
       "expected_output": "Should detect zero findings, state that no issues were found, offer to run an independent check on the reviewed files, NOT produce a numbered list or try to process nonexistent points. Should respond in French.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response is in French",
+        "Response clearly states that no issues were found \u2014 does NOT invent findings",
+        "Response does NOT produce a numbered list or attempt to process nonexistent points",
+        "Response offers to run an independent check on the reviewed files"
+      ]
     },
     {
       "id": 6,
       "prompt": "Review result:\n\n**Warning:** The `cache_ttl` parameter in `config.yaml:12` is set to 0, which effectively disables caching. This will cause every request to hit the database directly.\n\nLet's address this",
       "expected_output": "Should detect exactly 1 finding, process it directly WITHOUT a 'N points found' preamble, go straight into context and re-evaluation, assign explicit status, then produce a wrap-up summary table with one row.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response does NOT say 'N point(s) found' or any count preamble \u2014 goes directly to the finding",
+        "Response re-evaluates the finding before proposing a fix",
+        "Response does NOT generate an author's defense (the finding is labeled 'Warning', not Blocking/Required/Critical/Major)",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED)"
+      ]
     },
     {
       "id": 7,
-      "prompt": "Critical code review results:\n\n### Blocking\n\n1. **Unbounded memory growth** — `EventCollector` in `collector.py:34` appends to an in-memory list that is never flushed. In production with 10k events/sec, this will OOM within hours.\n\n### Required\n\n2. **Missing timeout on HTTP client** — `requests.get()` at `fetcher.py:56` has no timeout parameter. If the upstream is slow, the thread blocks indefinitely.\n\n3. **Logging PII** — `logger.info(f\"User data: {user_record}\")` at `handlers.py:89` logs the full user record including email and phone number.\n\nFix the review findings one by one",
+      "prompt": "Critical code review results:\n\n### Blocking\n\n1. **Unbounded memory growth** \u2014 `EventCollector` in `collector.py:34` appends to an in-memory list that is never flushed. In production with 10k events/sec, this will OOM within hours.\n\n### Required\n\n2. **Missing timeout on HTTP client** \u2014 `requests.get()` at `fetcher.py:56` has no timeout parameter. If the upstream is slow, the thread blocks indefinitely.\n\n3. **Logging PII** \u2014 `logger.info(f\"User data: {user_record}\")` at `handlers.py:89` logs the full user record including email and phone number.\n\nFix the review findings one by one",
       "expected_output": "Should process Blocking first. For the Blocking finding (unbounded memory), must include an author's defense section (e.g., 'the author could argue the list is bounded by the batch processing interval') and then evaluate whether that defense holds. Must assign an explicit status (ACCEPTED/REJECTED/DEFERRED/NOTED) with justification.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response processes the Blocking finding (unbounded memory) first",
+        "Response generates a specific author's defense for the Blocking finding \u2014 a concrete counter-argument the author could make",
+        "Response evaluates whether the author's defense holds (verdict: does it stand or not?)",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to the Blocking finding",
+        "Response asks for approval before moving to finding 2"
+      ]
     },
     {
       "id": 8,
-      "prompt": "Review report:\n\n1. **Potential issue with join** — The merge operation might produce duplicates.\n2. **Consider using constants** — Some values could be extracted.\n3. **Possible performance concern** — The loop could be slow on large datasets.\n\nLet's go through these",
+      "prompt": "Review report:\n\n1. **Potential issue with join** \u2014 The merge operation might produce duplicates.\n2. **Consider using constants** \u2014 Some values could be extracted.\n3. **Possible performance concern** \u2014 The loop could be slow on large datasets.\n\nLet's go through these",
       "expected_output": "Should detect that all 3 findings lack concrete fixes (no file, no line, no actionable remedy). For each finding processed, must formulate a concrete actionable fix itself rather than just echoing the vague finding. Should flag the vagueness in the re-evaluation.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Response states total count (3 points) without listing all upfront",
+        "Response flags the vagueness of finding 1 \u2014 noting it lacks file references, line numbers, or concrete details",
+        "For finding 1, response either formulates a concrete actionable fix OR DEFERs with justification that insufficient context prevents a targeted fix",
+        "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to finding 1",
+        "Response asks for user approval before moving to finding 2"
+      ]
     }
   ]
 }
