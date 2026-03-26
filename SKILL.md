@@ -24,6 +24,17 @@ If exactly one finding is found, process it directly without the "N points found
 
 For two or more findings, state the total number of points found, then start processing. Do not produce an upfront summary list of all findings — go straight to the first point.
 
+### Transparency status
+
+Before processing the first finding, report a brief capabilities status block so the user knows exactly what mechanisms are active for this walkthrough:
+
+- **Ouroboros**: "available" or "not available" (based on whether `ouroboros_qa` etc. are in the tool list). If available, also report whether multi-model consensus is enabled (test by checking if `OPENROUTER_API_KEY` is set in the environment — if not, note "consensus: single-model fallback").
+- **Author's defense**: "active on N/N findings" — count how many findings will trigger the defense based on severity tiers (all findings minus those explicitly in the low-severity exclusion list). If all findings trigger it, say "active on all findings". If none (all are low-severity), say "skipped — all findings are low-severity".
+- **Severity reordering**: "applied" (if reordering happened) or "original order preserved" (if no tiers detected).
+
+Keep this to 2-3 short lines. Example:
+> Ouroboros available (consensus: multi-model via OpenRouter). Author's defense active on 4/6 findings. Severity reordering applied — 2 Blocking first.
+
 ## Step 2: Process each point
 
 For each point, follow this exact sequence:
@@ -43,7 +54,15 @@ Assess the finding critically and honestly:
 - Is the suggested fix (if any) the right approach?
 - If the finding does not propose a concrete fix, formulate one yourself. A finding without an actionable remedy is noise — turn "potential issue with X" into "do Y at line Z to fix X".
 
-**Author's defense.** For findings explicitly classified as Blocking, Required, Critical, or Major by the review report (the report must use one of these exact tier names — do not infer severity from tone or wording alone; labels like Warning, Suggestion, Minor, Low, Medium, or Info do NOT qualify): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers.
+**Author's defense.** For every finding **unless** it is explicitly classified as one of the following low-severity tiers by the review report: Suggestion, Minor, Low, Info, Cosmetic, Nit, Note, Nitpick, Style, or Informational (match case-insensitively; the report must use one of these exact tier names — do not infer low severity from tone or wording alone): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers. If the review report uses no severity tiers at all, apply the author's defense to every finding.
+
+**Mechanism transparency.** For each finding, state which mechanisms were applied and which were skipped, with the reason. Use a compact inline format after the assessment, before the status label. Examples:
+- "Author's defense: applied — defense does not hold." / "Défense de l'auteur : appliquée — la défense ne tient pas."
+- "Author's defense: skipped (finding classified Minor)." / "Défense de l'auteur : non appliquée (finding classé Minor)."
+- "QA automatique : lancé (verdict incertain) — score 0.72, confirme le finding."
+- "QA automatique : non lancé (verdict clair)."
+
+This takes one line per mechanism — do not let it bloat the output.
 
 State your assessment clearly. If the point is invalid or not worth fixing, say so with a short explanation. The user decides whether to skip it or act on it anyway. If the user chooses to act on a point you assessed as invalid, apply the fix without further pushback — your role is advisory.
 
@@ -73,7 +92,13 @@ If a regression is detected:
 
 Also check whether the fix makes any of the remaining review points obsolete, already resolved, or partially addressed. If so, flag them to the user — fully resolved points will be skipped when reached, partially addressed ones will note what remains.
 
-Report what you checked and whether anything else needs attention.
+**Verification transparency.** Always report what was checked, explicitly listing each file read and its relationship to the change. Use a compact format:
+> Vérification : `collector.py` (modifié), `pipeline.py` (importe collector), `test_collector.py` (teste collector) → OK, pas de régression.
+
+or if no dependents exist:
+> Vérification : `SKILL.md` (modifié), aucun fichier dépendant détecté.
+
+If the fix was skipped (REJECTED/NOTED/DEFERRED with no code change), state explicitly: "Pas de modification → vérification non nécessaire." Do not silently skip this step.
 
 ### 2e. Wait for user approval
 
@@ -109,7 +134,43 @@ Follow with:
 - Count by status (e.g., "4 accepted, 1 rejected, 2 deferred")
 - List of DEFERRED items with their one-line justification — these are the user's follow-up backlog
 
+After the status counts, add a **Mechanisms used** line summarizing what fired during the walkthrough. Example:
+> Mechanisms: author's defense 4/6, QA auto 1 (finding #3), lateral think 0, evaluate ✓, drift check skipped (< 4 fixes).
+
+If Ouroboros was not available, state: "Ouroboros: not available — walkthrough ran without automated QA, consensus, or drift check."
+
 Keep it short — the user was there for the whole walkthrough.
+
+## Step 4: Persist
+
+After the wrap-up summary, automatically perform these two persistence actions. Do not ask the user — just do them and report what was written.
+
+### 4a. Update DEFERRED.md
+
+If any findings have status DEFERRED, append them to `DEFERRED.md` at the project root. Create the file if it does not exist, using this format:
+
+```markdown
+# Deferred
+
+Findings DEFERRED lors des code reviews. À revisiter périodiquement.
+
+| Date | Finding | Fichier | Raison du report | Échéance |
+|------|---------|---------|-----------------|----------|
+```
+
+For each DEFERRED finding, add one row with: today's date, a concise description of the finding, the file(s) involved, the reason for deferral, and `—` for échéance unless the user specified a deadline.
+
+If `DEFERRED.md` already exists, append rows to the existing table — do not overwrite.
+
+### 4b. Update memory with review calibration
+
+If any findings were REJECTED, check whether the project already has a `feedback_review_severity.md` memory file. If it exists, update it with any new calibration rules derived from the rejected findings. If it does not exist, create it.
+
+The memory should capture the general calibration pattern (e.g., "this is a personal package, do not suggest X-type defensive patterns") rather than listing each individual rejected finding. Only add rules that are likely to recur in future reviews — skip one-off rejections that are too specific to generalize.
+
+Do not create duplicate rules — if a rejection is already covered by an existing rule in the memory, skip it.
+
+After both actions, briefly report what was persisted (e.g., "2 items added to DEFERRED.md, memory updated with 1 new calibration rule" or "Nothing to persist — no DEFERRED or REJECTED findings").
 
 ## Behavioral notes
 
@@ -119,15 +180,14 @@ Keep it short — the user was there for the whole walkthrough.
 - If unsure whether a point is valid, say so and let the user decide.
 - Adapt to the user's language: if they speak French, respond in French; if English, respond in English.
 
-## Ouroboros integration (optional)
+## Ouroboros integration
 
-When the Ouroboros plugin is available (check: tools like `ouroboros_evaluate`, `ouroboros_qa`, `ouroboros_lateral_think` appear in the available tool list), offer the following as opt-in options at specific moments. Never invoke them automatically — always propose and let the user decide. If these tools are not present, skip this entire section silently.
+When the Ouroboros plugin is available (tools like `ouroboros_evaluate`, `ouroboros_qa`, `ouroboros_lateral_think` appear in the available tool list), apply the following automatically at the specified trigger points. Do not ask for permission — invoke the tools and present the results inline. If these tools are not present, skip this entire section silently.
 
 ### During re-evaluation (Step 2b)
 
-**`ouroboros_qa` — second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), offer to run a QA verdict for a structured second opinion. Do not offer this for findings that are clearly valid or clearly false — only for genuinely ambiguous cases.
+**`ouroboros_qa` — automatic second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), invoke `ouroboros_qa` automatically to break the tie. Do not invoke for findings that are clearly valid or clearly false — only when you genuinely cannot decide.
 
-How to invoke:
 ```
 ouroboros_qa(
   artifact: "<the code section under review, verbatim>",
@@ -135,53 +195,52 @@ ouroboros_qa(
   artifact_type: "code"
 )
 ```
-A score >= 0.8 means the code passes the quality bar (finding is likely a false positive). Below 0.8, the finding is likely valid. Present the score and the tool's suggestions to the user alongside your own assessment.
+A score >= 0.8 means the code passes the quality bar (finding is likely a false positive). Below 0.8, the finding is likely valid. Present the score alongside your own assessment — the user sees both and decides.
 
-**Advocate / Devil's Advocate pattern.** For Blocking or Required findings where the author's defense (see 2b) produces a compelling counter-argument, offer to escalate to a structured adversarial evaluation. Invoke `ouroboros_qa` twice with opposing quality bars on the same artifact:
-- Advocate (for the finding): `quality_bar: "The retry logic must use exponential backoff with jitter to avoid thundering herd — fixed delay is a production risk"`
-- Devil's Advocate (against): `quality_bar: "Fixed 100ms retry is acceptable here because the upstream service has a 5s timeout and max 3 retries caps total wait at 300ms"`
+**Advocate / Devil's Advocate pattern.** When the author's defense (see 2b) produces a counter-argument that you find plausible but cannot definitively confirm or reject, escalate automatically by invoking `ouroboros_qa` twice with opposing quality bars on the same artifact:
+- Advocate (for the finding): `quality_bar` states why the current code is dangerous
+- Devil's Advocate (against): `quality_bar` states why the current code is acceptable given context
 
-Both calls use the same `artifact` (the code under review). Present both scores and verdicts to the user and let them judge. This replaces gut-feel with structured deliberation on the hardest calls.
+Both calls use the same `artifact` (the code under review). Present both scores and verdicts to the user. This replaces gut-feel with structured deliberation on the hardest calls.
 
-### When stuck
+### When stuck (Step 2b–2c)
 
-**`ouroboros_lateral_think` — lateral thinking.** If the walkthrough gets stuck on a point — two or more exchanges without resolution, the user and you disagree on the right approach, or the fix has non-obvious trade-offs — offer to invoke a lateral thinking persona for a fresh angle. This is specifically for design disagreements, not for mechanical fixes.
+**`ouroboros_lateral_think` — automatic lateral thinking.** Trigger automatically when the walkthrough gets stuck on a point: two or more user exchanges on the same finding without reaching a fix, or the proposed fix introduces a regression (Step 2d revert). Do not invoke for simple mechanical disagreements — only for design-level impasses.
 
-How to invoke:
 ```
 ouroboros_lateral_think(
   problem_context: "<what the finding asks to fix and why it's contentious>",
-  current_approach: "<the fix approach currently being debated>",
-  persona: "contrarian"  // or "simplifier", "architect", "hacker", "researcher"
+  current_approach: "<the fix approach that failed or is being debated>",
+  persona: "<pick the best fit>"
 )
 ```
-Pick the persona that fits the impasse: `contrarian` if the assumption itself might be wrong, `simplifier` if the fix is over-engineered, `architect` if the root cause is structural, `hacker` for unconventional workarounds, `researcher` when more context is needed. If unsure, let the user choose.
+Persona selection: `contrarian` if the assumption itself might be wrong, `simplifier` if the fix is over-engineered, `architect` if the root cause is structural, `hacker` for unconventional workarounds, `researcher` when more context is needed. Present the lateral angle to the user as a third option alongside the existing proposals.
 
 ### During wrap-up (Step 3)
 
-**`ouroboros_evaluate` — final validation.** For walkthroughs on production or critical code (regulatory, clinical, shared pipelines), offer to run a structured evaluation on the modified files as a final check. Do not offer this for exploratory code or minor fixes.
+**`ouroboros_evaluate` — automatic final validation.** Run automatically when at least 2 fixes were applied during the walkthrough. No need to ask.
 
-How to invoke:
 ```
 ouroboros_evaluate(
-  session_id: "review-walkthrough",  // arbitrary string — use a descriptive label, no active Ouroboros session required
+  session_id: "review-walkthrough",
   artifact: "<summary of all changes applied during the walkthrough>",
   artifact_type: "code",
   acceptance_criterion: "<the original review's overall goal, e.g. 'all blocking findings resolved without regressions'>",
-  trigger_consensus: true,  // set to true for critical code, false otherwise
-  working_dir: "<path to the project root>"  // so mechanical checks (lint, tests) run in the right directory
+  trigger_consensus: <true if any fix was reverted due to regression during the walkthrough, false otherwise>,
+  working_dir: "<path to the project root>"
 )
 ```
-This runs mechanical checks (stage 1), semantic alignment (stage 2), and optionally multi-model consensus (stage 3). Report the results to the user as part of the wrap-up.
+When `trigger_consensus` is true, Ouroboros runs a multi-perspective deliberation (Advocate / Devil's Advocate / Judge). This works without external API keys — it falls back to single-model multi-perspective automatically if no `OPENROUTER_API_KEY` is configured.
 
-**`ouroboros_measure_drift` — drift check.** If more than 5 fixes were applied during the walkthrough, offer to measure whether the cumulative changes have drifted from the original intent.
+Report the results as part of the wrap-up summary. If the evaluation flags regressions, list them after the summary table.
 
-How to invoke:
+**`ouroboros_measure_drift` — automatic drift check.** Run automatically when 4 or more fixes were applied during the walkthrough.
+
 ```
 ouroboros_measure_drift(
-  session_id: "review-walkthrough",  // same label as ouroboros_evaluate, no active session required
+  session_id: "review-walkthrough",
   current_output: "<summary of the codebase state after all fixes>",
   seed_content: "<the original PR description or commit message that motivated the review>"
 )
 ```
-A drift score > 0.3 warrants discussion with the user — the fixes may have collectively shifted the code's purpose. Present the score and the tool's analysis.
+A drift score > 0.3 warrants a warning in the wrap-up — the fixes may have collectively shifted the code's purpose. Present the score and analysis after the summary table.
