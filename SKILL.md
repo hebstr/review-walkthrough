@@ -3,7 +3,7 @@ name: review-walkthrough
 description: >
   Interactive, point-by-point walkthrough of a review report produced by any review skill (skill-adversary, critical-code-reviewer, or any other). Parses the review findings from the current conversation, then processes each point one at a time: re-evaluates validity, proposes and applies fixes, checks impacted files for regressions, and waits for user approval before moving on.
 
-  Use this skill whenever the user wants to act on review results iteratively — phrases like "walkthrough the review", "let's go through the review point by point", "contre-review", "fix the review points one by one", "parcours les points de la review", "on passe sur chaque point", "régler les points un par un", "traiter les résultats de la review", "valider chaque point ensemble", "let's address the review findings", or any request to process/fix/handle review results step by step. Also trigger when a review skill just ran in the current conversation and the user asks to work through the results, even casually ("ok let's fix these", "on s'y met", "go through them", "let's do it", "yep fix them", "on y va", "let's tackle these"). These casual triggers require a review report to be present earlier in the conversation — do not trigger on them in isolation. Do NOT trigger for: code walkthroughs or architecture explanations, academic/paper reviews, PR comment discussions, linter or CI output processing, or Jira/backlog issue lists.
+  Use this skill whenever the user wants to act on review results iteratively — phrases like "walkthrough the review", "let's go through the review point by point", "contre-review", "fix the review points one by one", "parcours les points de la review", "on passe sur chaque point", "régler les points un par un", "traiter les résultats de la review", "valider chaque point ensemble", "let's address the review findings", "apply the suggestions from the review", or any request to process/fix/handle/triage/validate/filter review results step by step. French variants: "passer en revue les résultats", "corriger les points", "trier les findings". Also trigger when the user pastes or references an external review (from a coworker, a tool, or any other source) and asks to act on the findings. Also trigger when a review skill just ran in the current conversation and the user asks to work through the results, even casually ("ok let's fix these", "on s'y met", "go through them", "let's do it", "yep fix them", "on y va", "let's tackle these") — but ONLY when a structured review report with discrete findings exists earlier in the conversation; do not trigger on these casual phrases in isolation. Do NOT trigger for: code walkthroughs or architecture explanations, academic/paper reviews, PR comment discussions, linter or CI output processing, or Jira/backlog issue lists — even if the user's phrasing matches the casual triggers above.
 ---
 
 # Review Walkthrough
@@ -28,7 +28,7 @@ For two or more findings, state the total number of points found, then start pro
 
 Before processing the first finding, report a brief capabilities status block so the user knows exactly what mechanisms are active for this walkthrough:
 
-- **Ouroboros**: "available" or "not available" (based on whether `ouroboros_qa` etc. are in the tool list). If available, also report whether multi-model consensus is enabled (test by checking if `OPENROUTER_API_KEY` is set in the environment — if not, note "consensus: single-model fallback").
+- **Ouroboros**: "available", "not available", or "not available (runtime error)" (detect using the two-step probe described in the Ouroboros integration section). If available, also report whether multi-model consensus is enabled (test by checking if `OPENROUTER_API_KEY` is set in the environment — if not, note "consensus: single-model fallback").
 - **Author's defense**: "active on N/N findings" — count how many findings will trigger the defense based on severity tiers (all findings minus those explicitly in the low-severity exclusion list). If all findings trigger it, say "active on all findings". If none (all are low-severity), say "skipped — all findings are low-severity".
 - **Severity reordering**: "applied" (if reordering happened) or "original order preserved" (if no tiers detected).
 
@@ -41,7 +41,7 @@ For each point, follow this exact sequence:
 
 ### 2a. Context
 
-Briefly paraphrase the original finding. Quote verbatim only when the exact wording matters. Identify the file(s) and line(s) involved. Read the relevant code so you have the current state in front of you.
+Briefly paraphrase the original finding. Quote verbatim only when the exact wording matters. Identify the file(s) and line(s) involved. Read the relevant code so you have the current state in front of you. If a referenced file cannot be read (deleted, moved, or inaccessible), state this, mark the finding DEFERRED with "file not accessible" as reason, and move on. If the finding references no specific files (e.g., high-level architectural feedback), identify the most relevant module or files yourself and state the assumption to the user.
 
 ### 2b. Re-evaluate
 
@@ -52,9 +52,9 @@ Assess the finding critically and honestly:
 - Is it relevant given the project's context and conventions?
 - Is the severity appropriate?
 - Is the suggested fix (if any) the right approach?
-- If the finding does not propose a concrete fix, formulate one yourself. A finding without an actionable remedy is noise — turn "potential issue with X" into "do Y at line Z to fix X".
+- If the finding flags a real issue but does not propose a concrete fix, formulate one yourself — turn "potential issue with X" into "do Y at line Z to fix X". If after evaluation the finding is purely informational (no code change warranted), it is not noise — assign it NOTED.
 
-**Author's defense.** For every finding **unless** it is explicitly classified as one of the following low-severity tiers by the review report: Suggestion, Minor, Low, Info, Cosmetic, Nit, Note, Nitpick, Style, or Informational (match case-insensitively; the report must use one of these exact tier names — do not infer low severity from tone or wording alone): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers. If the review report uses no severity tiers at all, apply the author's defense to every finding.
+**Author's defense.** For every finding **unless** it is explicitly classified as one of the following low-severity tiers by the review report: Suggestion, Minor, Low, Info, Cosmetic, Nit, Note, Nitpick, Style, Informational, Optional, Enhancement, Wish, or Consider (match case-insensitively; the report must use one of these exact tier names — do not infer low severity from tone or wording alone): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers. If the review report uses no severity tiers at all, apply the author's defense to every finding.
 
 **Mechanism transparency.** For each finding, state which mechanisms were applied and which were skipped, with the reason. Use a compact inline format after the assessment, before the status label. Examples:
 - "Author's defense: applied — defense does not hold." / "Défense de l'auteur : appliquée — la défense ne tient pas."
@@ -174,7 +174,7 @@ After both actions, briefly report what was persisted (e.g., "2 items added to D
 
 ## Behavioral notes
 
-- Be concise. No filler, no restating what the user already knows. Step 2b can produce substantial analysis for high-severity findings (re-evaluation + author's defense + verdict) — keep each section to 2-3 sentences max. The user needs your conclusion, not your reasoning process.
+- Be concise. No filler, no restating what the user already knows. Step 2b can produce substantial analysis for high-severity findings (re-evaluation + author's defense + verdict) — keep each sub-section (re-evaluation, defense, verdict) to 2-3 sentences max; mechanism transparency lines do not count toward this limit. The user needs your conclusion, not your reasoning process.
 - When a finding is clearly wrong, say so directly — don't hedge excessively.
 - When a finding is valid, fix it without editorializing.
 - If unsure whether a point is valid, say so and let the user decide.
@@ -182,22 +182,20 @@ After both actions, briefly report what was persisted (e.g., "2 items added to D
 
 ## Ouroboros integration
 
-When the Ouroboros plugin is available (tools like `ouroboros_evaluate`, `ouroboros_qa`, `ouroboros_lateral_think` appear in the available tool list), apply the following automatically at the specified trigger points. Do not ask for permission — invoke the tools and present the results inline. If these tools are not present, skip this entire section silently.
+When the Ouroboros plugin is available, apply the following automatically at the specified trigger points. Do not ask for permission — invoke the tools and present the results inline. If these tools are not present, skip this entire section silently.
+
+**Detection:** Ouroboros tools are registered as MCP tools with prefixed names (e.g. `mcp__plugin_ouroboros_ouroboros__ouroboros_qa`). They may also be deferred (not yet loaded). To detect availability:
+1. Run `ToolSearch` with query `+ouroboros qa` at the start of the walkthrough (Step 1). If no results, Ouroboros is not available — skip all Ouroboros integration silently.
+2. If ToolSearch returns results, **probe** by calling `ouroboros_qa` with `artifact: "probe"`, `quality_bar: "probe"`. If the call succeeds, Ouroboros is confirmed available. If it returns an error (e.g. missing dependency, SDK not installed), treat Ouroboros as **not available** for the rest of the walkthrough — report it in the transparency status as "not available (runtime error)" and skip all Ouroboros calls silently. Do not retry or ask the user to install anything.
+
+**Runtime errors.** If any Ouroboros tool call fails during the walkthrough (Steps 2–3) after passing the initial probe, catch the error, report it inline as "QA automatique : erreur — [one-line reason]. Skipped." and continue the walkthrough without it. Never let an Ouroboros failure block the walkthrough.
 
 ### During re-evaluation (Step 2b)
 
-**`ouroboros_qa` — automatic second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), invoke `ouroboros_qa` automatically to break the tie. Do not invoke for findings that are clearly valid or clearly false — only when you genuinely cannot decide.
-
-```
-ouroboros_qa(
-  artifact: "<the code section under review, verbatim>",
-  quality_bar: "<the finding's claim, phrased as a quality criterion — e.g. 'SQL queries must use parameterized inputs, not f-string interpolation'>",
-  artifact_type: "code"
-)
-```
+**`ouroboros_qa` — automatic second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), invoke the ouroboros QA tool (use the MCP tool name returned by ToolSearch, e.g. `mcp__plugin_ouroboros_ouroboros__ouroboros_qa`) automatically to break the tie. Do not invoke for findings that are clearly valid or clearly false — only when you genuinely cannot decide. Parameters: `artifact` (the code section under review, verbatim), `quality_bar` (the finding's claim phrased as a quality criterion), `artifact_type` ("code").
 A score >= 0.8 means the code passes the quality bar (finding is likely a false positive). Below 0.8, the finding is likely valid. Present the score alongside your own assessment — the user sees both and decides.
 
-**Advocate / Devil's Advocate pattern.** When the author's defense (see 2b) produces a counter-argument that you find plausible but cannot definitively confirm or reject, escalate automatically by invoking `ouroboros_qa` twice with opposing quality bars on the same artifact:
+**Advocate / Devil's Advocate pattern.** When the author's defense (see 2b) produces a counter-argument that you find plausible but cannot definitively confirm or reject, escalate automatically by invoking the ouroboros QA tool twice with opposing quality bars on the same artifact:
 - Advocate (for the finding): `quality_bar` states why the current code is dangerous
 - Devil's Advocate (against): `quality_bar` states why the current code is acceptable given context
 
@@ -205,42 +203,18 @@ Both calls use the same `artifact` (the code under review). Present both scores 
 
 ### When stuck (Step 2b–2c)
 
-**`ouroboros_lateral_think` — automatic lateral thinking.** Trigger automatically when the walkthrough gets stuck on a point: two or more user exchanges on the same finding without reaching a fix, or the proposed fix introduces a regression (Step 2d revert). Do not invoke for simple mechanical disagreements — only for design-level impasses.
+**`ouroboros_lateral_think` — automatic lateral thinking.** Trigger automatically when the walkthrough gets stuck on a point: two or more user exchanges on the same finding without reaching a fix, or the proposed fix introduces a regression (Step 2d revert). Do not invoke for simple mechanical disagreements — only for design-level impasses. Use the MCP tool name returned by ToolSearch. Parameters: `problem_context` (what the finding asks to fix and why it's contentious), `current_approach` (the fix approach that failed or is being debated), `persona` (pick the best fit).
 
-```
-ouroboros_lateral_think(
-  problem_context: "<what the finding asks to fix and why it's contentious>",
-  current_approach: "<the fix approach that failed or is being debated>",
-  persona: "<pick the best fit>"
-)
-```
 Persona selection: `contrarian` if the assumption itself might be wrong, `simplifier` if the fix is over-engineered, `architect` if the root cause is structural, `hacker` for unconventional workarounds, `researcher` when more context is needed. Present the lateral angle to the user as a third option alongside the existing proposals.
 
 ### During wrap-up (Step 3)
 
-**`ouroboros_evaluate` — automatic final validation.** Run automatically when at least 2 fixes were applied during the walkthrough. No need to ask.
+**`ouroboros_evaluate` — automatic final validation.** Run automatically when at least 2 fixes were applied during the walkthrough. No need to ask. Use the MCP tool name returned by ToolSearch. Parameters: `session_id` ("review-walkthrough"), `artifact` (summary of all changes applied), `artifact_type` ("code"), `acceptance_criterion` (the original review's overall goal), `trigger_consensus` (true if any fix was reverted due to regression, false otherwise), `working_dir` (path to the project root).
 
-```
-ouroboros_evaluate(
-  session_id: "review-walkthrough",
-  artifact: "<summary of all changes applied during the walkthrough>",
-  artifact_type: "code",
-  acceptance_criterion: "<the original review's overall goal, e.g. 'all blocking findings resolved without regressions'>",
-  trigger_consensus: <true if any fix was reverted due to regression during the walkthrough, false otherwise>,
-  working_dir: "<path to the project root>"
-)
-```
 When `trigger_consensus` is true, Ouroboros runs a multi-perspective deliberation (Advocate / Devil's Advocate / Judge). This works without external API keys — it falls back to single-model multi-perspective automatically if no `OPENROUTER_API_KEY` is configured.
 
 Report the results as part of the wrap-up summary. If the evaluation flags regressions, list them after the summary table.
 
-**`ouroboros_measure_drift` — automatic drift check.** Run automatically when 4 or more fixes were applied during the walkthrough.
+**`ouroboros_measure_drift` — automatic drift check.** Run automatically when 4 or more fixes were applied during the walkthrough. Use the MCP tool name returned by ToolSearch. Parameters: `session_id` ("review-walkthrough"), `current_output` (summary of the codebase state after all fixes), `seed_content` (the original PR description or commit message that motivated the review).
 
-```
-ouroboros_measure_drift(
-  session_id: "review-walkthrough",
-  current_output: "<summary of the codebase state after all fixes>",
-  seed_content: "<the original PR description or commit message that motivated the review>"
-)
-```
 A drift score > 0.3 warrants a warning in the wrap-up — the fixes may have collectively shifted the code's purpose. Present the score and analysis after the summary table.
