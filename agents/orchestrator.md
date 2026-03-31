@@ -41,15 +41,32 @@ When injection applies:
 - **internal**: read `templates/calibration-internal.md` and prepend it
 - **production**: no calibration block — full adversarial severity
 
-Launch the reviewer via the `Skill` tool:
-- `Skill("critical-code-reviewer", "[calibration block]\n\nReview: <target>")`
-- `Skill("skill-adversary", "Review: <target>")` (no calibration)
+**Launch the reviewer as a foreground Agent** (not a Skill). This is critical — running the reviewer in the same context window as the walkthrough exhausts the context budget and causes the walkthrough to silently abort. The Agent isolates the reviewer's work (file reads, sub-agents, bash commands) and returns only the final report.
 
-If the reviewer skill is not available, tell the user and offer to install it or fall back to walkthrough-only mode.
+Build the Agent prompt as follows:
+
+```
+[calibration block, if applicable]
+
+You are running the <reviewer> skill. Review: <target>
+
+IMPORTANT — output format: return ONLY the structured findings report. Do not include your intermediate reasoning, file contents you read, or tool call results. Each finding must include: severity tier, file(s) and line(s), description, and suggested fix. Keep each finding to one short paragraph. Maximum 15 findings — if more exist, keep the 15 highest-severity ones and note how many were omitted.
+```
+
+Launch with `Agent(prompt, description="review <target>")` in **foreground** mode — the walkthrough cannot proceed without the report.
+
+For skill/tool reviewers (no calibration):
+```
+You are running the <reviewer> skill. Review: <target>
+
+[same output format instructions as above]
+```
+
+If the reviewer agent fails or returns an empty result, tell the user and offer to retry or fall back to walkthrough-only mode.
 
 ## Output
 
-After the reviewer completes, emit the following structured block **exactly** (the parent skill parses it):
+After the reviewer Agent returns its report, emit the following structured block **exactly** (the parent skill parses it), followed by the Agent's report verbatim:
 
 ```
 --- ORCHESTRATOR COMPLETE ---
@@ -58,6 +75,8 @@ reviewer: <reviewer name>
 calibrated: <yes|no>
 adversarial: <true|false>
 batch: <--batch|--no-batch|none>
+--- REVIEW REPORT ---
+<paste the Agent's returned report here, unmodified>
 --- PROCEED TO STEP 1 ---
 ```
 

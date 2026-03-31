@@ -19,9 +19,18 @@ You are conducting an interactive, point-by-point walkthrough of review findings
 
 If the user provided a target (file, directory, or glob) to review, delegate to `agents/orchestrator.md`. Pass the full user request (target + any flags). The orchestrator handles argument parsing, deployment context detection, calibration injection, and reviewer launch.
 
-When the orchestrator finishes, it emits an `--- ORCHESTRATOR COMPLETE ---` block with context values and ends with `--- PROCEED TO STEP 1 ---`. Parse that block for: deployment context (level + detection method), reviewer used, calibration status, `--adversarial` flag value, and `--batch`/`--no-batch` override.
+The orchestrator launches the reviewer as a **foreground Agent** — not inline in the current context. This is critical: the reviewer's work (file reads, sub-agents, bash commands) executes in a separate context window, and only the condensed findings report comes back. This prevents the reviewer from exhausting the context budget that the walkthrough needs.
 
-**CRITICAL: Do not stop here.** The review report is now in the conversation. Immediately proceed to Step 1 — do not summarize the review, do not ask the user what to do next, do not treat the reviewer's output as the end of your task. Your task is the walkthrough, not the review. The review was just the input. Continue now.
+When the orchestrator finishes, it emits a structured block containing:
+- `--- ORCHESTRATOR COMPLETE ---` with context values
+- `--- REVIEW REPORT ---` with the reviewer's condensed findings
+- `--- PROCEED TO STEP 1 ---`
+
+Parse the block for: deployment context (level + detection method), reviewer used, calibration status, `--adversarial` flag value, `--batch`/`--no-batch` override, and the review findings.
+
+**CRITICAL: Do not stop here.** The review report is now available. Immediately proceed to Step 1 — do not summarize the review, do not ask the user what to do next, do not treat the reviewer's output as the end of your task. Your task is the walkthrough, not the review. The review was just the input. Continue now.
+
+**Recovery:** if the orchestrator or reviewer fails mid-execution (context exhaustion, agent timeout, interrupted session), the user can re-invoke `/review-walkthrough` without a target. If a partial or complete review report exists in the conversation from a previous attempt, it will be picked up in walkthrough-only mode — no need to re-run the reviewer.
 
 If no target was provided (walkthrough-only mode), parse `--adversarial` and `--batch`/`--no-batch` from the user's invocation and skip directly to Step 1.
 
@@ -109,9 +118,14 @@ When the defense applies: before concluding, generate the strongest counter-argu
 
 This takes one line per mechanism — do not let it bloat the output.
 
-State your assessment clearly. If the point is invalid or not worth fixing, say so with a short explanation. The user decides whether to skip it or act on it anyway. If the user chooses to act on a point you assessed as invalid, apply the fix without further pushback — your role is advisory.
+State your assessment clearly and assign a preliminary verdict: ACCEPTED, REJECTED, NOTED, or DEFERRED.
 
-### 2c. Fix (if warranted)
+**Routing by verdict — follow immediately, do not pause between 2b and the next step:**
+- **ACCEPTED** → proceed to 2c (apply the fix), then 2d (verify), then 2e (report and ask to move on).
+- **REJECTED / NOTED** → skip 2c and 2d, go directly to 2e. The user can override and request a fix anyway — if they do, apply it without further pushback.
+- **DEFERRED** → skip 2c and 2d, go directly to 2e. State what would need to happen for the fix to be applied later.
+
+### 2c. Fix (ACCEPTED findings only)
 
 Apply the minimal, targeted correction. Rules:
 - Only touch code directly related to this point.
@@ -146,22 +160,17 @@ or if no dependents exist:
 
 If the fix was skipped (REJECTED/NOTED/DEFERRED with no code change), state explicitly: "No change applied — verification not needed." Do not silently skip this step.
 
-### 2e. Wait for user approval
+### 2e. Report and wait
 
-Before asking for approval, explicitly assign a status to this finding:
+The status was already assigned in 2b. Restate it here with a brief prompt. **Always** stop and wait for the user before moving to the next point — regardless of the status. Use a compact format:
 
-- **ACCEPTED** — the finding is valid and the fix was applied (or the code was already correct and no fix was needed, but the point is acknowledged)
-- **REJECTED** — the finding is invalid, irrelevant, or not worth fixing. State why in one line.
-- **DEFERRED** — the finding is valid but the fix is out of scope, too risky right now, or requires broader changes. State what would need to happen.
-- **NOTED** — the finding is informational or a matter of taste. Acknowledged, no action taken.
+- ACCEPTED with fix: "Fix applied — **ACCEPTED**. Next point?"
+- ACCEPTED without fix (code was already correct): "**ACCEPTED** — no change needed. Next point?"
+- REJECTED: "**REJECTED** — [one-line reason]. Next point?"
+- DEFERRED: "**DEFERRED** — [what would need to happen]. Next point?"
+- NOTED: "**NOTED**. Next point?"
 
-The user has the final say — if they disagree with your proposed status, update it without pushback.
-
-After presenting your assessment, status, and any changes, **always** stop and ask the user before moving to the next point — regardless of the status assigned (including DEFERRED). Use a brief prompt like:
-
-- "Next point?"
-- Or if a fix was applied: "Fix applied — ACCEPTED. OK to move on?"
-- Or if deferred: "DEFERRED — [reason]. Move to the next point?"
+The user has the final say — if they disagree with the status, update it without pushback. If they override a REJECTED to ACCEPTED, apply the fix (go back to 2c → 2d) then return here.
 
 Never auto-advance. Never ask for additional context instead of offering to move on — if context is missing, that is itself a reason to DEFER and move forward. The user might want to discuss, adjust, or revert before proceeding.
 
