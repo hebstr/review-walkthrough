@@ -39,7 +39,7 @@
         "Response re-evaluates the retry finding independently before proposing a fix",
         "Response assigns an explicit status label (ACCEPTED, REJECTED, DEFERRED, or NOTED) to the first finding",
         "Response asks for user approval before moving to the next point",
-        "Response does NOT generate an author's defense (no Blocking/Required severity tier present)"
+        "Response generates an author's defense (no severity tiers present — defense applies to all findings per spec)"
       ]
     },
     {

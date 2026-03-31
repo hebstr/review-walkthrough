@@ -46,13 +46,19 @@ Objectif : SKILL.md < 200 lignes.
 ## Ordre d'exécution
 
 1. **Sous-agents** (chantier 1) — le plus gros gain, débloque le reste
+   - [x] **1a. Orchestrateur** — `agents/orchestrator.md` (59 lignes), `templates/calibration-personal.md`, `templates/calibration-internal.md`. Step 0 de SKILL.md réduit de ~55 lignes à 7. Fait le 2026-03-31.
+   - [ ] 1b. Batch triage (`agents/batch-triage.md`)
+   - [ ] 1c. Ouroboros bridge (`agents/ouroboros-bridge.md`)
 2. **Templates/docs** (chantier 2) — mécanique, rapide une fois la structure en place
 3. **Redondance** (chantier 3) — nettoyage du SKILL.md allégé
 4. **Simplification** (chantier 4) — polish final
 
+**Bias refactor** (indépendant des chantiers ci-dessus) :
+- [x] Advocate/Devil's Advocate supprimé, remplacé par cross-model L1 (Agent intra-famille) + L2 (cross-provider via `ouroboros_evaluate`). Sections modifiées : glossaire, mechanism transparency examples, Ouroboros integration "During re-evaluation", wrap-up mechanisms example, evaluate fallback. Fait le 2026-03-31.
+
 ## Critères de succès
 
-- [ ] SKILL.md < 200 lignes
+- [ ] SKILL.md < 200 lignes (actuellement 376, était 424)
 - [ ] Chaque sous-agent < 100 lignes
 - [ ] Aucune instruction dupliquée entre fichiers
 - [ ] Comportement identique avant/après (tester avec `/review-walkthrough SKILL.md`)

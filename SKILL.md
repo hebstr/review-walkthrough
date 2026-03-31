@@ -17,63 +17,11 @@ You are conducting an interactive, point-by-point walkthrough of review findings
 
 ## Step 0: Orchestrate (only when a target is provided)
 
-If the user provided a target (file, directory, or glob) to review, execute this step. If no target was provided (the user wants to walk through an existing report), skip directly to Step 1.
+If the user provided a target (file, directory, or glob) to review, delegate to `agents/orchestrator.md`. Pass the full user request (target + any flags). The orchestrator handles argument parsing, deployment context detection, calibration injection, and reviewer launch.
 
-### 0a. Parse arguments
+When the orchestrator finishes, its output contains: deployment context (level + detection method), reviewer used, calibration status, `--adversarial` flag value, and `--batch`/`--no-batch` override. The review report is now in the conversation — proceed to Step 1.
 
-Extract from the user's request:
-- **target**: the file(s) or directory to review
-- **reviewer**: the `--reviewer` value if provided, otherwise default to `critical-code-reviewer`
-- **adversarial**: `--adversarial` flag (boolean, default false). When active, every Blocking/Required finding gets systematic Advocate/Devil's Advocate evaluation plus cross-model judge via Ouroboros consensus. Requires Ouroboros; degrades gracefully without `OPENROUTER_API_KEY` (single-model multi-perspective fallback).
-
-Validate that the reviewer is one of: `critical-code-reviewer`, `full-review`, `skill-adversary`, `mcp-adversary`. If not recognized, tell the user and ask them to pick one.
-
-`--adversarial` can also be used in walkthrough-only mode (no target) — parse it from the user's invocation in that case too.
-
-### 0b. Detect deployment context
-
-Determine the deployment context of the target to calibrate review severity. Use these heuristics in order:
-
-1. **Path heuristics** (check the target's resolved absolute path):
-   - `~/.local/bin/`, `~/bin/`, `~/scripts/`, `~/dotfiles/`, or any path under the user's home that is not inside a project with CI config → `personal`
-   - Project root contains CI config (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`), Dockerfile, or deploy manifests (`k8s/`, `deploy/`, `terraform/`) → `production`
-   - Project root contains an `.internal` marker file, or a project memory tags it as internal → `internal`
-
-2. **Memory check**: look for a `project_deployment_context.md` memory file for this project. If it exists, use the stored context level.
-
-3. **Fallback**: if no heuristic matches and no memory exists, ask the user: "Is this personal tooling, internal team tooling, or production code?" Persist the answer in a `project_deployment_context.md` memory file for future use.
-
-### 0c. Inject context calibration (conditional)
-
-Context injection applies **only** to reviewers that evaluate application code:
-- `critical-code-reviewer` — yes
-- `full-review` — yes
-- `skill-adversary` — no (reviews skill artefacts, not application code)
-- `mcp-adversary` — no (reviews MCP server schemas, not application code)
-
-When context injection applies, prepend a calibration block to the reviewer's prompt. The block depends on the detected context:
-
-**personal:**
-> Context: this is a personal utility script/tool on a single-user workstation. Calibrate severity accordingly: flag real bugs, data-loss risks, and logic errors. Do NOT flag: theoretical attack vectors requiring same-UID or physical access, portability for non-target platforms, defensive coding patterns for conditions that cannot occur in this single-user context, missing input validation for inputs the author controls, or production-grade error handling for scripts that can just crash.
-
-**internal:**
-> Context: this is internal team tooling on a trusted network. Calibrate severity accordingly: flag bugs, security issues, correctness problems, and maintainability concerns. Do NOT flag: portability beyond the team's stack, or public-facing hardening patterns. DO flag: injection risks if the tool processes any external input, authentication/authorization gaps, and data integrity issues.
-
-**production:**
-No calibration block — the reviewer runs at full adversarial severity.
-
-When context injection does not apply (skill/tool reviewers), launch the reviewer with its original prompt unmodified.
-
-### 0d. Launch the reviewer
-
-Invoke the reviewer skill via the `Skill` tool, passing the target and (if applicable) the calibration block as a prefix to the prompt. Examples:
-- `Skill("critical-code-reviewer", "Context: this is a personal utility... [calibration block]\n\nReview: ~/scripts/backup.sh")`
-- `Skill("full-review", "Context: this is production code.\n\nReview: src/")`
-- `Skill("skill-adversary", "Review: SKILL.md")` (no calibration)
-
-Wait for the reviewer to complete and produce its report. The report now exists in the conversation — proceed to Step 1 to walk through it.
-
-If the reviewer skill is not available (not installed, not in the skill list), tell the user and offer to either install it or fall back to walkthrough-only mode on an existing report.
+If no target was provided (walkthrough-only mode), parse `--adversarial` and `--batch`/`--no-batch` from the user's invocation and skip directly to Step 1.
 
 ## Step 1: Extract the review points
 
@@ -98,14 +46,14 @@ Before processing the first finding, report a brief capabilities status block so
 - **Author's defense**: "active on N/N findings" — count how many findings will trigger the defense based on severity tiers (all findings minus those explicitly in the low-severity exclusion list). If all findings trigger it, say "active on all findings". If none (all are low-severity), say "skipped — all findings are low-severity".
 - **Severity reordering**: "applied" (if reordering happened) or "original order preserved" (if no tiers detected).
 - **Batch mode**: "active (N findings >= 15)" when Step 1b will run, "inactive (N findings < 15)" when it won't, or "forced via --batch" / "disabled via --no-batch" when overridden by the user.
-- **Adversarial mode** (only if `--adversarial` is active): "active — N Blocking/Required findings will get systematic Advocate/Devil's Advocate (via `ouroboros_qa`) + cross-model judge (via `ouroboros_evaluate` with `trigger_consensus: true`)" (or "active — cross-model: single-model fallback (no OPENROUTER_API_KEY)" if the key is missing). If `--adversarial` is not active, omit this line entirely.
+- **Cross-model validation**: report the active level. Level 1 (intra-family Agent) is always active on Important+ findings. Level 2 (cross-provider via `ouroboros_evaluate` + OpenRouter) activates on Blocking/Required when `--adversarial` is set, or on level 1 divergence. If `--adversarial` is not active, report "Level 1 only (no --adversarial)". If `OPENROUTER_API_KEY` is not set, report "Level 2: unavailable (no API key) — level 1 divergences will be flagged without escalation".
 
 If Ouroboros is available, add a brief glossary of the mechanisms that may fire during the walkthrough, so the user understands the transparency lines they will see later:
 
-> **Ouroboros mechanisms available for this walkthrough:**
-> - *QA auto* — automated second opinion when the verdict on a finding is genuinely uncertain
-> - *Advocate / Devil's advocate* — contradictory double evaluation to stress-test borderline calls
-> - *Cross-model judge* — independent verdict from a different model via OpenRouter, using `ouroboros_evaluate` with `trigger_consensus: true` (`--adversarial` only; `ouroboros_qa` does NOT support this)
+> **Mechanisms available for this walkthrough:**
+> - *QA auto* — automated second opinion when the verdict on a finding is genuinely uncertain (via `ouroboros_qa`)
+> - *Cross-model L1 (intra-family)* — independent re-evaluation by an Agent with an alternate Claude model (e.g. Sonnet if main is Opus); triggers on Important+ findings
+> - *Cross-model L2 (cross-provider)* — independent verdict from a different provider via OpenRouter, using `ouroboros_evaluate` with `trigger_consensus: true`; triggers on Blocking/Required (`--adversarial`) or L1 divergence
 > - *Lateral think* — creative unblocking when a point stays stuck after 2+ exchanges
 > - *Evaluate* — final validation of all applied changes (triggers when ≥ 2 fixes)
 > - *Drift check* — detects whether cumulative fixes shifted the code away from its original intent (triggers when ≥ 4 fixes)
@@ -241,8 +189,11 @@ Assess the finding critically and honestly:
 - "Author's defense: skipped (finding classified Minor)." / "Défense de l'auteur : non appliquée (finding classé Minor)."
 - "QA automatique : lancé (verdict incertain) — score 0.72, confirme le finding."
 - "QA automatique : non lancé (verdict clair)."
-- "Adversarial: Advocate 0.45 / Devil's advocate 0.82 / Cross-model judge 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) → finding confirmed (3/3 agree)."
-- "Adversarial: skipped (not Blocking/Required)." / "Adversarial: not active (no --adversarial flag)."
+- "Cross-model L1: Agent (sonnet) agrees — finding confirmed." / "Cross-model L1 : Agent (sonnet) confirme le finding."
+- "Cross-model L1: Agent (sonnet) disagrees → escalating to L2." / "Cross-model L1 : Agent (sonnet) diverge → escalade L2."
+- "Cross-model L2: score 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) — finding confirmed." / "Cross-model L2 : score 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) — finding confirmé."
+- "Cross-model: L1 only (not Blocking/Required, no divergence)." / "Cross-model : L1 uniquement (pas Blocking/Required, pas de divergence)."
+- "Cross-model: skipped (finding classified Minor)." / "Cross-model : non appliqué (finding classé Minor)."
 
 This takes one line per mechanism — do not let it bloat the output.
 
@@ -322,9 +273,9 @@ Follow with:
 - List of DEFERRED items with their one-line justification — these are the user's follow-up backlog
 
 After the status counts, add a **Mechanisms used** block summarizing what fired during the walkthrough and — critically — **why each non-fired mechanism was not triggered**. For each mechanism, report: count of invocations, and if zero, the reason in parentheses. Example:
-> **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · adversarial 4/4 Blocking/Required (1 divergence flagged, cross-model via OpenRouter, judge model: anthropic/claude-sonnet-4) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
+> **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · cross-model L1 6/8 Important+ (Agent sonnet, 1 divergence → escalated to L2) · cross-model L2 3/4 Blocking/Required (model: anthropic/claude-sonnet-4 via OpenRouter) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
 
-If `--adversarial` was not active, report: "adversarial: not active (no --adversarial flag)". If active but Ouroboros was unavailable, report: "adversarial: requested but Ouroboros not available — ran without cross-model validation".
+If `--adversarial` was not active, report: "cross-model: L1 only (no --adversarial flag)". If `OPENROUTER_API_KEY` is not set, report: "cross-model L2: unavailable (no API key)".
 
 If `ouroboros_evaluate` produces a misleading result (e.g. because the artifact was a text summary rather than actual code), flag it explicitly — do not present the score without context.
 
@@ -386,19 +337,17 @@ When the Ouroboros plugin is available, apply the following automatically at the
 **`ouroboros_qa` — automatic second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), invoke the ouroboros QA tool (use the MCP tool name returned by ToolSearch, e.g. `mcp__plugin_ouroboros_ouroboros__ouroboros_qa`) automatically to break the tie. Do not invoke for findings that are clearly valid or clearly false — only when you genuinely cannot decide. Parameters: `artifact` (the code section under review, verbatim), `quality_bar` (the finding's claim phrased as a quality criterion), `artifact_type` ("code").
 A score >= 0.8 means the code passes the quality bar (finding is likely a false positive). Below 0.8, the finding is likely valid. Present the score alongside your own assessment — the user sees both and decides.
 
-**Advocate / Devil's Advocate pattern.** Default trigger: when the author's defense (see 2b) produces a counter-argument that you find plausible but cannot definitively confirm or reject. With `--adversarial`: trigger on **every** Blocking/Required finding, regardless of perceived certainty. Invoke the ouroboros QA tool twice with opposing quality bars on the same artifact:
-- Advocate (for the finding): `quality_bar` states why the current code is dangerous
-- Devil's Advocate (against): `quality_bar` states why the current code is acceptable given context
+**Cross-model validation — two levels.** This replaces the former Advocate/Devil's Advocate pattern. The goal is real model diversity, not same-model debate.
 
-Both calls use the same `artifact` (the code under review). Present both scores and verdicts to the user. This replaces gut-feel with structured deliberation on the hardest calls.
+**Level 1 — Intra-family Agent.** Triggers on every finding classified Important or higher (Important, Required, Blocking, Critical, or equivalent). Spawn an Agent with the alternate Claude model (`model: "sonnet"` if the main model is Opus, `model: "opus"` if the main model is Sonnet). The Agent receives the code section and the finding's claim, re-evaluates independently in isolation, and returns its verdict (valid/invalid + one-line rationale). Present the Agent's verdict alongside your own. If both agree → clear verdict. If they disagree → flag the divergence and escalate to Level 2 if available.
 
-**Cross-model judge (`--adversarial` only).** After the Advocate/Devil's Advocate pair, if `--adversarial` is active and the finding is Blocking/Required, invoke `ouroboros_evaluate` (not `ouroboros_qa` — only `evaluate` supports `trigger_consensus`) with `trigger_consensus: true`. Parameters: `session_id` ("review-walkthrough-adversarial"), `artifact` (the code section under review), `acceptance_criterion` (the finding's claim phrased as a pass/fail criterion), `artifact_type` ("code"), `trigger_consensus` (true), `working_dir` (project root). This sends the artifact to a different model via OpenRouter for an independent verdict. Present the cross-model verdict alongside the same-model Advocate/Devil's Advocate scores. If the cross-model judge disagrees with the same-model consensus, flag the divergence explicitly — this is the exact scenario `--adversarial` exists to catch.
+**Level 2 — Cross-provider (`--adversarial` or L1 divergence).** Triggers when: (a) `--adversarial` is active and the finding is Blocking/Required, regardless of L1 outcome, or (b) L1 produced a divergence on any severity. Invoke `ouroboros_evaluate` (not `ouroboros_qa` — only `evaluate` supports `trigger_consensus`) with `trigger_consensus: true`. Parameters: `session_id` ("review-walkthrough-adversarial"), `artifact` (the code section), `acceptance_criterion` (the finding's claim as a pass/fail criterion), `artifact_type` ("code"), `trigger_consensus` (true), `working_dir` (project root). This sends the artifact to a different provider via OpenRouter. Present the cross-provider verdict alongside L1 results. If L2 disagrees with L1, flag the divergence explicitly.
 
-**Model transparency.** When the cross-model judge returns, extract the model name from the evaluate response (look for model identifiers in the reasoning or metadata). Report it in the mechanism transparency line, e.g.: "Cross-model judge: score 0.58 (model: anthropic/claude-sonnet-4-20250514 via OpenRouter)." If the model name cannot be extracted from the response, state "Cross-model judge: score 0.58 (model: unknown — not returned by evaluate)." Never omit the model identity — the user must be able to verify that a different model was actually used.
+**Model transparency.** Always report the model used at each level. For L1: "Agent (sonnet)" or "Agent (opus)". For L2: extract the model name from the evaluate response, e.g. "model: anthropic/claude-sonnet-4 via OpenRouter". If the model name cannot be extracted, state "model: unknown — not returned by evaluate". Never omit model identity.
 
-**Important:** `ouroboros_qa` does **not** support `trigger_consensus`. Never pass `trigger_consensus` to `ouroboros_qa` — the parameter will be silently ignored, producing a misleading same-model result presented as cross-model.
+**Important:** `ouroboros_qa` does **not** support `trigger_consensus`. Never pass `trigger_consensus` to `ouroboros_qa` — it will be silently ignored, producing a misleading same-model result.
 
-If `OPENROUTER_API_KEY` is not set, `trigger_consensus: true` falls back to single-model multi-perspective automatically. Report this in the mechanism transparency line: "Cross-model judge: single-model fallback (no API key)."
+If `OPENROUTER_API_KEY` is not set, Level 2 is unavailable. Report: "Cross-model L2: unavailable (no API key)." L1 divergences are flagged but not escalated.
 
 ### When stuck (Step 2b–2c)
 
@@ -416,7 +365,7 @@ Persona selection: `contrarian` if the assumption itself might be wrong, `simpli
 
 Other parameters: `session_id` ("review-walkthrough"), `acceptance_criterion` (the original review's overall goal + " Changes introduced during this review walkthrough only — pre-existing issues are out of scope."), `trigger_consensus` (true if any fix was reverted due to regression, false otherwise), `working_dir` (path to the project root).
 
-When `trigger_consensus` is true, Ouroboros runs a multi-perspective deliberation (Advocate / Devil's Advocate / Judge). This works without external API keys — it falls back to single-model multi-perspective automatically if no `OPENROUTER_API_KEY` is configured.
+When `trigger_consensus` is true, Ouroboros sends the artifact to a different provider via OpenRouter for an independent verdict. If `OPENROUTER_API_KEY` is not set, do not use `trigger_consensus` — the single-model fallback adds no real diversity. Report: "evaluate: no cross-provider validation (no API key)."
 
 **Post-filter on evaluate results.** If evaluate flags issues, cross-reference each against the diff. If a flagged issue is on a line not modified by the walkthrough (not in the diff hunk), discard it and note: "N pre-existing issues filtered from evaluate results."
 
