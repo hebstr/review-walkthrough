@@ -98,14 +98,14 @@ Before processing the first finding, report a brief capabilities status block so
 - **Author's defense**: "active on N/N findings" — count how many findings will trigger the defense based on severity tiers (all findings minus those explicitly in the low-severity exclusion list). If all findings trigger it, say "active on all findings". If none (all are low-severity), say "skipped — all findings are low-severity".
 - **Severity reordering**: "applied" (if reordering happened) or "original order preserved" (if no tiers detected).
 - **Batch mode**: "active (N findings >= 15)" when Step 1b will run, "inactive (N findings < 15)" when it won't, or "forced via --batch" / "disabled via --no-batch" when overridden by the user.
-- **Adversarial mode** (only if `--adversarial` is active): "active — N Blocking/Required findings will get systematic Advocate/Devil's Advocate + cross-model judge" (or "active — cross-model: single-model fallback (no OPENROUTER_API_KEY)" if the key is missing). If `--adversarial` is not active, omit this line entirely.
+- **Adversarial mode** (only if `--adversarial` is active): "active — N Blocking/Required findings will get systematic Advocate/Devil's Advocate (via `ouroboros_qa`) + cross-model judge (via `ouroboros_evaluate` with `trigger_consensus: true`)" (or "active — cross-model: single-model fallback (no OPENROUTER_API_KEY)" if the key is missing). If `--adversarial` is not active, omit this line entirely.
 
 If Ouroboros is available, add a brief glossary of the mechanisms that may fire during the walkthrough, so the user understands the transparency lines they will see later:
 
 > **Ouroboros mechanisms available for this walkthrough:**
 > - *QA auto* — automated second opinion when the verdict on a finding is genuinely uncertain
 > - *Advocate / Devil's advocate* — contradictory double evaluation to stress-test borderline calls
-> - *Cross-model judge* — independent verdict from a different model via OpenRouter (`--adversarial` only)
+> - *Cross-model judge* — independent verdict from a different model via OpenRouter, using `ouroboros_evaluate` with `trigger_consensus: true` (`--adversarial` only; `ouroboros_qa` does NOT support this)
 > - *Lateral think* — creative unblocking when a point stays stuck after 2+ exchanges
 > - *Evaluate* — final validation of all applied changes (triggers when ≥ 2 fixes)
 > - *Drift check* — detects whether cumulative fixes shifted the code away from its original intent (triggers when ≥ 4 fixes)
@@ -241,7 +241,7 @@ Assess the finding critically and honestly:
 - "Author's defense: skipped (finding classified Minor)." / "Défense de l'auteur : non appliquée (finding classé Minor)."
 - "QA automatique : lancé (verdict incertain) — score 0.72, confirme le finding."
 - "QA automatique : non lancé (verdict clair)."
-- "Adversarial: Advocate 0.45 / Devil's advocate 0.82 / Cross-model judge 0.38 → finding confirmed (3/3 agree)."
+- "Adversarial: Advocate 0.45 / Devil's advocate 0.82 / Cross-model judge 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) → finding confirmed (3/3 agree)."
 - "Adversarial: skipped (not Blocking/Required)." / "Adversarial: not active (no --adversarial flag)."
 
 This takes one line per mechanism — do not let it bloat the output.
@@ -322,7 +322,7 @@ Follow with:
 - List of DEFERRED items with their one-line justification — these are the user's follow-up backlog
 
 After the status counts, add a **Mechanisms used** block summarizing what fired during the walkthrough and — critically — **why each non-fired mechanism was not triggered**. For each mechanism, report: count of invocations, and if zero, the reason in parentheses. Example:
-> **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · adversarial 4/4 Blocking/Required (1 divergence flagged, cross-model via OpenRouter) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
+> **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · adversarial 4/4 Blocking/Required (1 divergence flagged, cross-model via OpenRouter, judge model: anthropic/claude-sonnet-4) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
 
 If `--adversarial` was not active, report: "adversarial: not active (no --adversarial flag)". If active but Ouroboros was unavailable, report: "adversarial: requested but Ouroboros not available — ran without cross-model validation".
 
@@ -392,7 +392,11 @@ A score >= 0.8 means the code passes the quality bar (finding is likely a false 
 
 Both calls use the same `artifact` (the code under review). Present both scores and verdicts to the user. This replaces gut-feel with structured deliberation on the hardest calls.
 
-**Cross-model judge (`--adversarial` only).** After the Advocate/Devil's Advocate pair, if `--adversarial` is active and the finding is Blocking/Required, invoke `ouroboros_qa` a third time with `trigger_consensus: true`. This sends the artifact to a different model via OpenRouter for an independent verdict. Parameters: `artifact` (the code section), `quality_bar` (the finding's claim), `artifact_type` ("code"), `trigger_consensus` (true). Present the cross-model verdict alongside the same-model scores. If the cross-model judge disagrees with the same-model consensus, flag the divergence explicitly — this is the exact scenario `--adversarial` exists to catch.
+**Cross-model judge (`--adversarial` only).** After the Advocate/Devil's Advocate pair, if `--adversarial` is active and the finding is Blocking/Required, invoke `ouroboros_evaluate` (not `ouroboros_qa` — only `evaluate` supports `trigger_consensus`) with `trigger_consensus: true`. Parameters: `session_id` ("review-walkthrough-adversarial"), `artifact` (the code section under review), `acceptance_criterion` (the finding's claim phrased as a pass/fail criterion), `artifact_type` ("code"), `trigger_consensus` (true), `working_dir` (project root). This sends the artifact to a different model via OpenRouter for an independent verdict. Present the cross-model verdict alongside the same-model Advocate/Devil's Advocate scores. If the cross-model judge disagrees with the same-model consensus, flag the divergence explicitly — this is the exact scenario `--adversarial` exists to catch.
+
+**Model transparency.** When the cross-model judge returns, extract the model name from the evaluate response (look for model identifiers in the reasoning or metadata). Report it in the mechanism transparency line, e.g.: "Cross-model judge: score 0.58 (model: anthropic/claude-sonnet-4-20250514 via OpenRouter)." If the model name cannot be extracted from the response, state "Cross-model judge: score 0.58 (model: unknown — not returned by evaluate)." Never omit the model identity — the user must be able to verify that a different model was actually used.
+
+**Important:** `ouroboros_qa` does **not** support `trigger_consensus`. Never pass `trigger_consensus` to `ouroboros_qa` — the parameter will be silently ignored, producing a misleading same-model result presented as cross-model.
 
 If `OPENROUTER_API_KEY` is not set, `trigger_consensus: true` falls back to single-model multi-perspective automatically. Report this in the mechanism transparency line: "Cross-model judge: single-model fallback (no API key)."
 
