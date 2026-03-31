@@ -5,7 +5,7 @@ description: >
 
   This skill has two modes: **orchestrator mode** (launches a reviewer then walks through its report) and **walkthrough-only mode** (processes an existing report in the conversation).
 
-  **Orchestrator mode** — trigger when the user provides a target (file, directory, or glob) to review, optionally with a `--reviewer` flag. Phrases: "review-walkthrough src/", "review-walkthrough ~/scripts/backup.sh --reviewer full-review", "review et walkthrough de ce fichier", "lance une review sur X puis on passe dessus", or any request that combines reviewing and walking through results in one step. Default reviewer: `critical-code-reviewer`. Supported reviewers: `critical-code-reviewer`, `full-review`, `skill-adversary`, `mcp-adversary`.
+  **Orchestrator mode** — trigger when the user provides a target (file, directory, or glob) to review, optionally with `--reviewer` and/or `--adversarial` flags. Phrases: "review-walkthrough src/", "review-walkthrough ~/scripts/backup.sh --reviewer full-review", "review et walkthrough de ce fichier", "lance une review sur X puis on passe dessus", or any request that combines reviewing and walking through results in one step. Default reviewer: `critical-code-reviewer`. Supported reviewers: `critical-code-reviewer`, `full-review`, `skill-adversary`, `mcp-adversary`.
 
   **Walkthrough-only mode** — trigger when the user wants to act on review results iteratively — phrases like "walkthrough the review", "let's go through the review point by point", "contre-review", "fix the review points one by one", "parcours les points de la review", "on passe sur chaque point", "régler les points un par un", "traiter les résultats de la review", "valider chaque point ensemble", "let's address the review findings", "apply the suggestions from the review", or any request to process/fix/handle/triage/validate/filter review results step by step. French variants: "passer en revue les résultats", "corriger les points", "trier les findings". Also trigger when the user pastes or references an external review (from a coworker, a tool, or any other source) and asks to act on the findings. Also trigger when a review skill just ran in the current conversation and the user asks to work through the results, even casually ("ok let's fix these", "on s'y met", "go through them", "let's do it", "yep fix them", "on y va", "let's tackle these") — but ONLY when a structured review report with discrete findings exists earlier in the conversation; do not trigger on these casual phrases in isolation. Do NOT trigger for: code walkthroughs or architecture explanations, academic/paper reviews, PR comment discussions, linter or CI output processing, or Jira/backlog issue lists — even if the user's phrasing matches the casual triggers above.
 ---
@@ -23,8 +23,11 @@ If the user provided a target (file, directory, or glob) to review, execute this
 Extract from the user's request:
 - **target**: the file(s) or directory to review
 - **reviewer**: the `--reviewer` value if provided, otherwise default to `critical-code-reviewer`
+- **adversarial**: `--adversarial` flag (boolean, default false). When active, every Blocking/Required finding gets systematic Advocate/Devil's Advocate evaluation plus cross-model judge via Ouroboros consensus. Requires Ouroboros; degrades gracefully without `OPENROUTER_API_KEY` (single-model multi-perspective fallback).
 
 Validate that the reviewer is one of: `critical-code-reviewer`, `full-review`, `skill-adversary`, `mcp-adversary`. If not recognized, tell the user and ask them to pick one.
+
+`--adversarial` can also be used in walkthrough-only mode (no target) — parse it from the user's invocation in that case too.
 
 ### 0b. Detect deployment context
 
@@ -94,12 +97,14 @@ Before processing the first finding, report a brief capabilities status block so
 - **Author's defense**: "active on N/N findings" — count how many findings will trigger the defense based on severity tiers (all findings minus those explicitly in the low-severity exclusion list). If all findings trigger it, say "active on all findings". If none (all are low-severity), say "skipped — all findings are low-severity".
 - **Severity reordering**: "applied" (if reordering happened) or "original order preserved" (if no tiers detected).
 - **Batch mode**: "active (N findings >= 15)" when Step 1b will run, "inactive (N findings < 15)" when it won't, or "forced via --batch" / "disabled via --no-batch" when overridden by the user.
+- **Adversarial mode** (only if `--adversarial` is active): "active — N Blocking/Required findings will get systematic Advocate/Devil's Advocate + cross-model judge" (or "active — cross-model: single-model fallback (no OPENROUTER_API_KEY)" if the key is missing). If `--adversarial` is not active, omit this line entirely.
 
 If Ouroboros is available, add a brief glossary of the mechanisms that may fire during the walkthrough, so the user understands the transparency lines they will see later:
 
 > **Ouroboros mechanisms available for this walkthrough:**
 > - *QA auto* — automated second opinion when the verdict on a finding is genuinely uncertain
 > - *Advocate / Devil's advocate* — contradictory double evaluation to stress-test borderline calls
+> - *Cross-model judge* — independent verdict from a different model via OpenRouter (`--adversarial` only)
 > - *Lateral think* — creative unblocking when a point stays stuck after 2+ exchanges
 > - *Evaluate* — final validation of all applied changes (triggers when ≥ 2 fixes)
 > - *Drift check* — detects whether cumulative fixes shifted the code away from its original intent (triggers when ≥ 4 fixes)
@@ -235,6 +240,8 @@ Assess the finding critically and honestly:
 - "Author's defense: skipped (finding classified Minor)." / "Défense de l'auteur : non appliquée (finding classé Minor)."
 - "QA automatique : lancé (verdict incertain) — score 0.72, confirme le finding."
 - "QA automatique : non lancé (verdict clair)."
+- "Adversarial: Advocate 0.45 / Devil's advocate 0.82 / Cross-model judge 0.38 → finding confirmed (3/3 agree)."
+- "Adversarial: skipped (not Blocking/Required)." / "Adversarial: not active (no --adversarial flag)."
 
 This takes one line per mechanism — do not let it bloat the output.
 
@@ -314,7 +321,9 @@ Follow with:
 - List of DEFERRED items with their one-line justification — these are the user's follow-up backlog
 
 After the status counts, add a **Mechanisms used** block summarizing what fired during the walkthrough and — critically — **why each non-fired mechanism was not triggered**. For each mechanism, report: count of invocations, and if zero, the reason in parentheses. Example:
-> **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
+> **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · adversarial 4/4 Blocking/Required (1 divergence flagged, cross-model via OpenRouter) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
+
+If `--adversarial` was not active, report: "adversarial: not active (no --adversarial flag)". If active but Ouroboros was unavailable, report: "adversarial: requested but Ouroboros not available — ran without cross-model validation".
 
 If `ouroboros_evaluate` produces a misleading result (e.g. because the artifact was a text summary rather than actual code), flag it explicitly — do not present the score without context.
 
@@ -376,11 +385,15 @@ When the Ouroboros plugin is available, apply the following automatically at the
 **`ouroboros_qa` — automatic second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), invoke the ouroboros QA tool (use the MCP tool name returned by ToolSearch, e.g. `mcp__plugin_ouroboros_ouroboros__ouroboros_qa`) automatically to break the tie. Do not invoke for findings that are clearly valid or clearly false — only when you genuinely cannot decide. Parameters: `artifact` (the code section under review, verbatim), `quality_bar` (the finding's claim phrased as a quality criterion), `artifact_type` ("code").
 A score >= 0.8 means the code passes the quality bar (finding is likely a false positive). Below 0.8, the finding is likely valid. Present the score alongside your own assessment — the user sees both and decides.
 
-**Advocate / Devil's Advocate pattern.** When the author's defense (see 2b) produces a counter-argument that you find plausible but cannot definitively confirm or reject, escalate automatically by invoking the ouroboros QA tool twice with opposing quality bars on the same artifact:
+**Advocate / Devil's Advocate pattern.** Default trigger: when the author's defense (see 2b) produces a counter-argument that you find plausible but cannot definitively confirm or reject. With `--adversarial`: trigger on **every** Blocking/Required finding, regardless of perceived certainty. Invoke the ouroboros QA tool twice with opposing quality bars on the same artifact:
 - Advocate (for the finding): `quality_bar` states why the current code is dangerous
 - Devil's Advocate (against): `quality_bar` states why the current code is acceptable given context
 
 Both calls use the same `artifact` (the code under review). Present both scores and verdicts to the user. This replaces gut-feel with structured deliberation on the hardest calls.
+
+**Cross-model judge (`--adversarial` only).** After the Advocate/Devil's Advocate pair, if `--adversarial` is active and the finding is Blocking/Required, invoke `ouroboros_qa` a third time with `trigger_consensus: true`. This sends the artifact to a different model via OpenRouter for an independent verdict. Parameters: `artifact` (the code section), `quality_bar` (the finding's claim), `artifact_type` ("code"), `trigger_consensus` (true). Present the cross-model verdict alongside the same-model scores. If the cross-model judge disagrees with the same-model consensus, flag the divergence explicitly — this is the exact scenario `--adversarial` exists to catch.
+
+If `OPENROUTER_API_KEY` is not set, `trigger_consensus: true` falls back to single-model multi-perspective automatically. Report this in the mechanism transparency line: "Cross-model judge: single-model fallback (no API key)."
 
 ### When stuck (Step 2b–2c)
 
