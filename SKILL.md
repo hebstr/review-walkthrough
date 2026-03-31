@@ -42,11 +42,11 @@ For two or more findings, state the total number of points found, then start pro
 Before processing the first finding, report a brief capabilities status block so the user knows exactly what mechanisms are active for this walkthrough:
 
 - **Deployment context** (only if Step 0 ran): report the detected context level and how it was determined. E.g., "Context: personal (detected from path ~/scripts/)." or "Context: production (CI config found)." If the context was asked to the user, say "Context: [level] (user-provided)."
-- **Ouroboros**: "available", "not available", or "not available (runtime error)" (detect using the two-step probe described in the Ouroboros integration section). If available, also report whether multi-model consensus is enabled (test by checking if `OPENROUTER_API_KEY` is set in the environment — if not, note "consensus: single-model fallback").
-- **Author's defense**: "active on N/N findings" — count how many findings will trigger the defense based on severity tiers (all findings minus those explicitly in the low-severity exclusion list). If all findings trigger it, say "active on all findings". If none (all are low-severity), say "skipped — all findings are low-severity".
+- **Ouroboros**: report the result from the bridge's detection probe (available/not available, consensus enabled/fallback).
+- **Author's defense**: "active on N/N findings" — count findings classified at Important severity or above (see Step 2b). If all findings qualify, say "active on all findings". If none, say "skipped — no Important+ findings".
 - **Severity reordering**: "applied" (if reordering happened) or "original order preserved" (if no tiers detected).
 - **Batch mode**: "active (N findings >= 15)" when Step 1b will run, "inactive (N findings < 15)" when it won't, or "forced via --batch" / "disabled via --no-batch" when overridden by the user.
-- **Cross-model validation**: report the active level. Level 1 (intra-family Agent) is always active on Important+ findings. Level 2 (cross-provider via `ouroboros_evaluate` + OpenRouter) activates on Blocking/Required when `--adversarial` is set, or on level 1 divergence. If `--adversarial` is not active, report "Level 1 only (no --adversarial)". If `OPENROUTER_API_KEY` is not set, report "Level 2: unavailable (no API key) — level 1 divergences will be flagged without escalation".
+- **Cross-model validation**: report the active level based on `--adversarial` flag and bridge detection results (L1 always on Important+; L2 on Blocking/Required with `--adversarial` or on L1 divergence — see `agents/ouroboros-bridge.md` for details).
 
 If Ouroboros is available, add a brief glossary of the mechanisms that may fire during the walkthrough, so the user understands the transparency lines they will see later:
 
@@ -58,7 +58,7 @@ If Ouroboros is available, add a brief glossary of the mechanisms that may fire 
 > - *Evaluate* — final validation of all applied changes (triggers when ≥ 2 fixes)
 > - *Drift check* — detects whether cumulative fixes shifted the code away from its original intent (triggers when ≥ 4 fixes)
 
-This glossary appears only once, before the first finding. Adapt the language to match the user's (French or English). Keep it compact — one line per mechanism, no elaboration.
+This glossary appears only once, before the first finding. Keep it compact — one line per mechanism, no elaboration.
 
 Keep the status block itself to 2-4 short lines. Example:
 > Context: personal (detected from path ~/scripts/). Reviewer: critical-code-reviewer (calibrated). Ouroboros available (consensus: single-model fallback). Author's defense active on 4/6 findings. Severity reordering applied — 2 Blocking first. Batch mode: active (32 findings ≥ 15).
@@ -67,101 +67,9 @@ Keep the status block itself to 2-4 short lines. Example:
 
 This step activates automatically when the review contains **15 or more findings**. Below 15, skip directly to Step 2. The user can force batch mode with `--batch` (active regardless of count) or suppress it with `--no-batch`.
 
-When active, perform a rapid triage of all findings into three buckets before starting the interactive walkthrough. The goal is to accelerate obvious verdicts while preserving full scrutiny for anything ambiguous or high-stakes.
+When active, delegate to `agents/batch-triage.md`. Pass the full findings list, deployment context, and `--adversarial` flag. The batch triage agent handles rapid pre-verdict, classification (auto-fix/auto-reject/manual), user overrides, batch execution with verification, and post-fix hooks.
 
-### 1b.1 Rapid pre-verdict
-
-For each finding, read the relevant code and form a quick assessment (1-2 sentences). Do **not** apply the author's defense — it is reserved for the manual walkthrough to avoid same-model self-conviction. Do **not** invoke Ouroboros QA at this stage.
-
-Classify each finding into one of three buckets:
-
-| Bucket | Criteria | Action |
-|--------|----------|--------|
-| **Auto-fix** | The finding is clearly valid **AND** the fix matches a mechanical pattern (see whitelist below) **AND** the finding is NOT classified Blocking or Required by the reviewer | Fix applied in batch |
-| **Auto-reject** | The finding is clearly a false positive or out of context — contradicted by the code, already calibrated away by context detection, or obviously inapplicable | Rejected in batch (REJECTED) |
-| **Manual** | Verdict is uncertain, fix is non-trivial, touches multiple files, finding is Blocking/Required, or none of the above criteria are met | Full individual walkthrough (Step 2) |
-
-**Conservative default:** when in doubt, classify as Manual. Batch mode is an accelerator, not a filter.
-
-**Auto-fix whitelist.** Only the following mechanical patterns qualify for auto-fix. Everything else goes to Manual, even if the finding seems straightforward:
-- Unused imports or variables (removal only)
-- Missing type annotations on function signatures (addition only, no logic change)
-- Typos in strings, comments, or identifiers (exact correction obvious from context)
-- Missing `return` type annotations
-- Trivial format/lint fixes explicitly flagged by the reviewer (e.g., trailing whitespace, missing newline at EOF)
-- Dead code removal when the reviewer explicitly identifies the code as unreachable
-
-If a finding matches a whitelist pattern but the fix would touch more than one file, it goes to Manual.
-
-**Blocking/Required findings always go to Manual**, regardless of how obvious the fix seems. The reviewer's high severity warrants human review.
-
-### 1b.2 Present the triage
-
-Show the user a summary of the triage, then the three tables (auto-fix, auto-reject, manual):
-
-```
-Triage: 32 findings analyzed.
-- 12 auto-fix (mechanical corrections, applied in batch)
-- 8 auto-reject (false positives, rejected in batch)
-- 12 manual (individual walkthrough)
-
-Auto-fix:
-| # | Finding | File | Fix |
-|---|---------|------|-----|
-| 3 | Unused import | api.ts:1 | Remove `lodash` import |
-| 7 | Missing return type | utils.ts:42 | Add `: void` |
-| ... | ... | ... | ... |
-
-Auto-reject:
-| # | Finding | Reason |
-|---|---------|--------|
-| 2 | XSS via innerHTML | Personal script, no untrusted input |
-| 6 | No CSRF token | CLI tool, no web interface |
-| ... | ... | ... |
-
-Manual (individual walkthrough):
-| # | Finding | File | Severity | Reason for manual |
-|---|---------|------|----------|-------------------|
-| 1 | HTML escaping in generate_html | generate_html.py:45 | Blocking | High severity |
-| 5 | Fragment stripping in normalize_url | normalize_url.py:12 | Required | Non-trivial fix |
-| ... | ... | ... | ... | ... |
-
-Override? (e.g., "move 3 to manual", "move 2 to auto-fix", or "ok")
-```
-
-Wait for the user to confirm or override. The user can move any finding between buckets by number. Apply all overrides, then proceed.
-
-### 1b.3 Batch execution
-
-**Auto-reject:** mark all auto-reject findings as REJECTED with the one-line reason from the table. No code changes.
-
-**Auto-fix:** apply fixes sequentially. After each fix, run the same verification as Step 2d (re-read modified file + files one level away). If verification fails:
-1. Revert the fix immediately.
-2. Move the finding to Manual.
-3. Continue with the next auto-fix.
-
-**Post-fix hooks.** After all auto-fix operations, check if any fix modified a dependency manifest. Only trigger when the modification is in a dependency section. If the lock command fails, report the error — do not revert the dependency fix.
-
-| File modified | Command |
-|---------------|---------|
-| `pyproject.toml` (deps) | `uv lock` (if uv.lock exists) or `pip-compile` |
-| `package.json` (deps) | `npm install` or `yarn install` (detect from lockfile) |
-| `Cargo.toml` (deps) | `cargo update` |
-| `renv.lock` / DESCRIPTION (R) | `Rscript -e 'renv::snapshot()'` |
-
-After all batch operations, report a compact summary:
-
-```
-Batch complete: 11/12 auto-fix applied, 1 reverted → moved to manual.
-8 auto-reject confirmed.
-Starting manual walkthrough: 13 findings.
-```
-
-**Ouroboros QA on auto-reject (optional).** If Ouroboros is available, run a QA check on each auto-reject finding: `artifact` = the code section, `quality_bar` = the finding's claim. Score >= 0.8 confirms the rejection. Below 0.8, move the finding to Manual silently (it will be re-evaluated with full scrutiny). Report the number of QA-promoted findings in the batch summary if any were moved.
-
-### 1b.4 Transition to manual walkthrough
-
-After batch execution, proceed to Step 2 with only the Manual bucket. The transparency status line and finding count reflect the manual subset. Batch results (auto-fix and auto-reject) appear in the final wrap-up table (Step 3) alongside manual results.
+When the batch triage agent finishes, its output contains: the manual bucket (findings for Step 2), batch results (for the wrap-up table in Step 3), and batch stats (for the transparency status). Proceed to Step 2 with only the manual bucket.
 
 ## Step 2: Process each point (manual bucket)
 
@@ -182,18 +90,20 @@ Assess the finding critically and honestly:
 - Is the suggested fix (if any) the right approach?
 - If the finding flags a real issue but does not propose a concrete fix, formulate one yourself — turn "potential issue with X" into "do Y at line Z to fix X". If after evaluation the finding is purely informational (no code change warranted), it is not noise — assign it NOTED.
 
-**Author's defense.** For every finding **unless** it is explicitly classified as one of the following low-severity tiers by the review report: Suggestion, Minor, Low, Info, Cosmetic, Nit, Note, Nitpick, Style, Informational, Optional, Enhancement, Wish, or Consider (match case-insensitively; the report must use one of these exact tier names — do not infer low severity from tone or wording alone): before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers. If the review report uses no severity tiers at all, apply the author's defense to every finding.
+**Author's defense.** Applies to findings classified at **Important severity or above** — i.e., any tier whose name signals a required or blocking change (e.g. Important, Required, Blocking, Critical, Major, High). Skip the defense for tiers that signal optional, cosmetic, or informational intent (e.g. Minor, Suggestion, Nit, Info, Style). Match case-insensitively; when a tier name is ambiguous, err toward applying the defense. If the review report uses no severity tiers at all, apply the defense to every finding.
+
+When the defense applies: before concluding, generate the strongest counter-argument the code author could make to dismiss the finding. Then evaluate that counter-argument honestly. If the defense holds, downgrade or reject the finding. If it doesn't, the finding is reinforced. Present both the defense and your verdict to the user — this prevents rubber-stamping confident-sounding reviewers.
 
 **Mechanism transparency.** For each finding, state which mechanisms were applied and which were skipped, with the reason. Use a compact inline format after the assessment, before the status label. Examples:
-- "Author's defense: applied — defense does not hold." / "Défense de l'auteur : appliquée — la défense ne tient pas."
-- "Author's defense: skipped (finding classified Minor)." / "Défense de l'auteur : non appliquée (finding classé Minor)."
-- "QA automatique : lancé (verdict incertain) — score 0.72, confirme le finding."
-- "QA automatique : non lancé (verdict clair)."
-- "Cross-model L1: Agent (sonnet) agrees — finding confirmed." / "Cross-model L1 : Agent (sonnet) confirme le finding."
-- "Cross-model L1: Agent (sonnet) disagrees → escalating to L2." / "Cross-model L1 : Agent (sonnet) diverge → escalade L2."
-- "Cross-model L2: score 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) — finding confirmed." / "Cross-model L2 : score 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) — finding confirmé."
-- "Cross-model: L1 only (not Blocking/Required, no divergence)." / "Cross-model : L1 uniquement (pas Blocking/Required, pas de divergence)."
-- "Cross-model: skipped (finding classified Minor)." / "Cross-model : non appliqué (finding classé Minor)."
+- "Author's defense: applied — defense does not hold."
+- "Author's defense: skipped (finding classified Minor)."
+- "QA auto: triggered (uncertain verdict) — score 0.72, finding confirmed."
+- "QA auto: skipped (clear verdict)."
+- "Cross-model L1: Agent (sonnet) agrees — finding confirmed."
+- "Cross-model L1: Agent (sonnet) disagrees → escalating to L2."
+- "Cross-model L2: score 0.38 (model: anthropic/claude-sonnet-4 via OpenRouter) — finding confirmed."
+- "Cross-model: L1 only (not Blocking/Required, no divergence)."
+- "Cross-model: skipped (finding classified Minor)."
 
 This takes one line per mechanism — do not let it bloat the output.
 
@@ -205,7 +115,6 @@ Apply the minimal, targeted correction. Rules:
 - Only touch code directly related to this point.
 - No opportunistic refactoring of surrounding code.
 - No inline comments added to the code.
-- Mirror the user's language (French or English) in any communication.
 - If the correct fix requires changes beyond the scope of this single point (e.g., structural refactoring), flag it to the user instead of applying an incomplete fix. Let them decide whether to broaden the scope or skip. If they approve broadening, propose a short plan of the changes involved and get confirmation before applying. Then resume the normal walkthrough flow.
 
 ### 2d. Verify impacted files
@@ -216,7 +125,7 @@ After each fix, re-read the files you modified and files one level away. For cod
 - Inconsistencies introduced between related files (e.g., a SKILL.md body that now contradicts an agent file)
 - Tests that need updating
 
-If the fix modified a dependency manifest (`pyproject.toml`, `package.json`, `Cargo.toml`, `DESCRIPTION`, `renv.lock`), run the appropriate lock command (see post-fix hooks table in 1b.3) before continuing verification.
+If the fix modified a dependency manifest (`pyproject.toml`, `package.json`, `Cargo.toml`, `DESCRIPTION`, `renv.lock`), run the appropriate lock command (see post-fix hooks table in `agents/batch-triage.md`) before continuing verification.
 
 Do NOT expand this into a full project review. Stay scoped to the blast radius of your change.
 
@@ -228,12 +137,12 @@ If a regression is detected:
 Also check whether the fix makes any of the remaining review points obsolete, already resolved, or partially addressed. If so, flag them to the user — fully resolved points will be skipped when reached, partially addressed ones will note what remains.
 
 **Verification transparency.** Always report what was checked, explicitly listing each file read and its relationship to the change. Use a compact format:
-> Vérification : `collector.py` (modifié), `pipeline.py` (importe collector), `test_collector.py` (teste collector) → OK, pas de régression.
+> Verification: `collector.py` (modified), `pipeline.py` (imports collector), `test_collector.py` (tests collector) — no regression.
 
 or if no dependents exist:
-> Vérification : `SKILL.md` (modifié), aucun fichier dépendant détecté.
+> Verification: `SKILL.md` (modified), no dependent files detected.
 
-If the fix was skipped (REJECTED/NOTED/DEFERRED with no code change), state explicitly: "Pas de modification → vérification non nécessaire." Do not silently skip this step.
+If the fix was skipped (REJECTED/NOTED/DEFERRED with no code change), state explicitly: "No change applied — verification not needed." Do not silently skip this step.
 
 ### 2e. Wait for user approval
 
@@ -248,9 +157,9 @@ The user has the final say — if they disagree with your proposed status, updat
 
 After presenting your assessment, status, and any changes, **always** stop and ask the user before moving to the next point — regardless of the status assigned (including DEFERRED). Use a brief prompt like:
 
-- "Next point?" / "On passe au suivant ?"
-- Or if a fix was applied: "Fix applied — ACCEPTED. OK to move on?" / "Correction faite — ACCEPTED. On continue ?"
-- Or if deferred: "DEFERRED — [reason]. Move to the next point?" / "DEFERRED — [raison]. On passe au suivant ?"
+- "Next point?"
+- Or if a fix was applied: "Fix applied — ACCEPTED. OK to move on?"
+- Or if deferred: "DEFERRED — [reason]. Move to the next point?"
 
 Never auto-advance. Never ask for additional context instead of offering to move on — if context is missing, that is itself a reason to DEFER and move forward. The user might want to discuss, adjust, or revert before proceeding.
 
@@ -275,11 +184,7 @@ Follow with:
 After the status counts, add a **Mechanisms used** block summarizing what fired during the walkthrough and — critically — **why each non-fired mechanism was not triggered**. For each mechanism, report: count of invocations, and if zero, the reason in parentheses. Example:
 > **Mechanisms:** batch triage 20/32 (12 auto-fix, 8 auto-reject) · author's defense 10/11 · QA auto 0/22 (no ambiguous verdicts) · cross-model L1 6/8 Important+ (Agent sonnet, 1 divergence → escalated to L2) · cross-model L2 3/4 Blocking/Required (model: anthropic/claude-sonnet-4 via OpenRouter) · lateral think 0 (no stuck points or regressions) · evaluate ✓ (score 0.88, based on git diff of 4 files) · drift skipped (< 4 fixes)
 
-If `--adversarial` was not active, report: "cross-model: L1 only (no --adversarial flag)". If `OPENROUTER_API_KEY` is not set, report: "cross-model L2: unavailable (no API key)".
-
-If `ouroboros_evaluate` produces a misleading result (e.g. because the artifact was a text summary rather than actual code), flag it explicitly — do not present the score without context.
-
-If Ouroboros was not available, state: "Ouroboros: not available — walkthrough ran without automated QA, consensus, or drift check."
+The bridge returns pre-formatted mechanism summaries (cross-model status, evaluate results, drift score). Include them verbatim. If Ouroboros was not available, state: "Ouroboros: not available — walkthrough ran without automated QA, consensus, or drift check."
 
 Keep it to 2-3 lines max — the user was there for the whole walkthrough.
 
@@ -320,57 +225,18 @@ After both actions, briefly report what was persisted (e.g., "2 items added to D
 - When a finding is clearly wrong, say so directly — don't hedge excessively.
 - When a finding is valid, fix it without editorializing.
 - If unsure whether a point is valid, say so and let the user decide.
-- Adapt to the user's language: if they speak French, respond in French; if English, respond in English.
+- **Language rule:** mirror the user's language in all output (detect from their messages). All examples in this file are in English — translate them to match the user's language at runtime. This is the single source of truth for language behavior; no other section overrides it.
 
 ## Ouroboros integration
 
-When the Ouroboros plugin is available, apply the following automatically at the specified trigger points. Do not ask for permission — invoke the tools and present the results inline. If these tools are not present, skip this entire section silently.
+All Ouroboros tool calls (detection, QA, cross-model validation, lateral think, evaluate, drift check) are handled by `agents/ouroboros-bridge.md`. Delegate to it at the trigger points listed below. If Ouroboros is not available, skip silently.
 
-**Detection:** Ouroboros tools are registered as MCP tools with prefixed names (e.g. `mcp__plugin_ouroboros_ouroboros__ouroboros_qa`). They may also be deferred (not yet loaded). To detect availability:
-1. Run `ToolSearch` with query `+ouroboros qa` at the start of the walkthrough (Step 1). If no results, Ouroboros is not available — skip all Ouroboros integration silently.
-2. If ToolSearch returns results, **probe** by calling `ouroboros_qa` with `artifact: "probe"`, `quality_bar: "probe"`. If the call succeeds, Ouroboros is confirmed available. If it returns an error (e.g. missing dependency, SDK not installed), treat Ouroboros as **not available** for the rest of the walkthrough — report it in the transparency status as "not available (runtime error)" and skip all Ouroboros calls silently. Do not retry or ask the user to install anything.
+**Trigger points:**
+- **Step 1 (detection):** call the bridge to probe availability. Use the result for the transparency status.
+- **Step 2b (QA):** when your re-evaluation is genuinely uncertain, delegate to the bridge for a QA second opinion.
+- **Step 2b (cross-model L1/L2):** on Important+ findings, delegate to the bridge for cross-model validation. It handles Agent spawning (L1) and `ouroboros_evaluate` with consensus (L2).
+- **Step 2b-2c (lateral think):** when stuck (2+ exchanges or regression revert), delegate to the bridge.
+- **Step 3 (evaluate):** when >= 2 fixes applied, delegate to the bridge for final validation. It builds the artifact from git diff.
+- **Step 3 (drift):** when >= 4 fixes applied, delegate to the bridge for drift check.
 
-**Runtime errors.** If any Ouroboros tool call fails during the walkthrough (Steps 2–3) after passing the initial probe, catch the error, report it inline as "QA automatique : erreur — [one-line reason]. Skipped." and continue the walkthrough without it. Never let an Ouroboros failure block the walkthrough.
-
-### During re-evaluation (Step 2b)
-
-**`ouroboros_qa` — automatic second opinion on ambiguous findings.** When your re-evaluation is uncertain (you cannot confidently call a finding valid or invalid), invoke the ouroboros QA tool (use the MCP tool name returned by ToolSearch, e.g. `mcp__plugin_ouroboros_ouroboros__ouroboros_qa`) automatically to break the tie. Do not invoke for findings that are clearly valid or clearly false — only when you genuinely cannot decide. Parameters: `artifact` (the code section under review, verbatim), `quality_bar` (the finding's claim phrased as a quality criterion), `artifact_type` ("code").
-A score >= 0.8 means the code passes the quality bar (finding is likely a false positive). Below 0.8, the finding is likely valid. Present the score alongside your own assessment — the user sees both and decides.
-
-**Cross-model validation — two levels.** This replaces the former Advocate/Devil's Advocate pattern. The goal is real model diversity, not same-model debate.
-
-**Level 1 — Intra-family Agent.** Triggers on every finding classified Important or higher (Important, Required, Blocking, Critical, or equivalent). Spawn an Agent with the alternate Claude model (`model: "sonnet"` if the main model is Opus, `model: "opus"` if the main model is Sonnet). The Agent receives the code section and the finding's claim, re-evaluates independently in isolation, and returns its verdict (valid/invalid + one-line rationale). Present the Agent's verdict alongside your own. If both agree → clear verdict. If they disagree → flag the divergence and escalate to Level 2 if available.
-
-**Level 2 — Cross-provider (`--adversarial` or L1 divergence).** Triggers when: (a) `--adversarial` is active and the finding is Blocking/Required, regardless of L1 outcome, or (b) L1 produced a divergence on any severity. Invoke `ouroboros_evaluate` (not `ouroboros_qa` — only `evaluate` supports `trigger_consensus`) with `trigger_consensus: true`. Parameters: `session_id` ("review-walkthrough-adversarial"), `artifact` (the code section), `acceptance_criterion` (the finding's claim as a pass/fail criterion), `artifact_type` ("code"), `trigger_consensus` (true), `working_dir` (project root). This sends the artifact to a different provider via OpenRouter. Present the cross-provider verdict alongside L1 results. If L2 disagrees with L1, flag the divergence explicitly.
-
-**Model transparency.** Always report the model used at each level. For L1: "Agent (sonnet)" or "Agent (opus)". For L2: extract the model name from the evaluate response, e.g. "model: anthropic/claude-sonnet-4 via OpenRouter". If the model name cannot be extracted, state "model: unknown — not returned by evaluate". Never omit model identity.
-
-**Important:** `ouroboros_qa` does **not** support `trigger_consensus`. Never pass `trigger_consensus` to `ouroboros_qa` — it will be silently ignored, producing a misleading same-model result.
-
-If `OPENROUTER_API_KEY` is not set, Level 2 is unavailable. Report: "Cross-model L2: unavailable (no API key)." L1 divergences are flagged but not escalated.
-
-### When stuck (Step 2b–2c)
-
-**`ouroboros_lateral_think` — automatic lateral thinking.** Trigger automatically when the walkthrough gets stuck on a point: two or more user exchanges on the same finding without reaching a fix, or the proposed fix introduces a regression (Step 2d revert). Do not invoke for simple mechanical disagreements — only for design-level impasses. Use the MCP tool name returned by ToolSearch. Parameters: `problem_context` (what the finding asks to fix and why it's contentious), `current_approach` (the fix approach that failed or is being debated), `persona` (pick the best fit).
-
-Persona selection: `contrarian` if the assumption itself might be wrong, `simplifier` if the fix is over-engineered, `architect` if the root cause is structural, `hacker` for unconventional workarounds, `researcher` when more context is needed. Present the lateral angle to the user as a third option alongside the existing proposals.
-
-### During wrap-up (Step 3)
-
-**`ouroboros_evaluate` — automatic final validation.** Run automatically when at least 2 fixes were applied during the walkthrough. No need to ask. Use the MCP tool name returned by ToolSearch. Before calling, build the `artifact` from actual content — not a prose summary:
-- **Code files modified**: run `git diff` on files touched during the walkthrough and use the diff output. Include only the diff output as the artifact — never the full file content. Prefix the artifact with: "Evaluate ONLY the changes shown in this diff. Do not flag pre-existing issues that are not part of the diff." If the diff exceeds ~4000 lines, truncate to the most impactful files (Blocking/Required fixes) and note the truncation.
-- **Non-code files modified** (docs, configs, YAML, SKILL.md…): read the final state of modified files and concatenate them. If too large, include only the modified sections with surrounding context.
-- **Mixed**: combine both approaches. Use `artifact_type` "code" if the majority of changes are code, "document" otherwise.
-- **Fallback**: a prose summary is acceptable only if the content cannot be extracted (e.g., changes were reverted and re-applied outside git tracking). In that case, flag explicitly in the wrap-up that evaluate received a summary, not actual content, and the score should be interpreted with caution.
-
-Other parameters: `session_id` ("review-walkthrough"), `acceptance_criterion` (the original review's overall goal + " Changes introduced during this review walkthrough only — pre-existing issues are out of scope."), `trigger_consensus` (true if any fix was reverted due to regression, false otherwise), `working_dir` (path to the project root).
-
-When `trigger_consensus` is true, Ouroboros sends the artifact to a different provider via OpenRouter for an independent verdict. If `OPENROUTER_API_KEY` is not set, do not use `trigger_consensus` — the single-model fallback adds no real diversity. Report: "evaluate: no cross-provider validation (no API key)."
-
-**Post-filter on evaluate results.** If evaluate flags issues, cross-reference each against the diff. If a flagged issue is on a line not modified by the walkthrough (not in the diff hunk), discard it and note: "N pre-existing issues filtered from evaluate results."
-
-Report the results as part of the wrap-up summary. If the evaluation flags regressions, list them after the summary table.
-
-**`ouroboros_measure_drift` — automatic drift check.** Run automatically when 4 or more fixes were applied during the walkthrough. Use the MCP tool name returned by ToolSearch. Parameters: `session_id` ("review-walkthrough"), `current_output` (summary of the codebase state after all fixes), `seed_content` (the original PR description or commit message that motivated the review).
-
-A drift score > 0.3 warrants a warning in the wrap-up — the fixes may have collectively shifted the code's purpose. Present the score and analysis after the summary table.
+Present all Ouroboros results inline as described in the mechanism transparency format (Step 2b). Runtime errors are caught by the bridge — never let an Ouroboros failure block the walkthrough.
