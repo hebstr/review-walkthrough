@@ -49,11 +49,16 @@ If the reviewer skill is not available, tell the user and offer to install it or
 
 ## Output
 
-After the reviewer completes, report these values clearly so the parent skill can use them:
-- **Deployment context**: level + detection method (e.g., "personal — path heuristic")
-- **Reviewer**: which reviewer was used
-- **Calibration**: whether a calibration block was injected
-- **Adversarial**: flag value
-- **Batch override**: `--batch`, `--no-batch`, or none
+After the reviewer completes, emit the following structured block **exactly** (the parent skill parses it):
 
-The review report is now in the conversation. The parent skill continues from Step 1.
+```
+--- ORCHESTRATOR COMPLETE ---
+context: <level> (<detection method>)
+reviewer: <reviewer name>
+calibrated: <yes|no>
+adversarial: <true|false>
+batch: <--batch|--no-batch|none>
+--- PROCEED TO STEP 1 ---
+```
+
+Do not stop after this block. Do not summarize the review. Do not ask the user what to do next. The parent skill takes over immediately.

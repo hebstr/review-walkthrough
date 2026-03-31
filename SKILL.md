@@ -19,7 +19,9 @@ You are conducting an interactive, point-by-point walkthrough of review findings
 
 If the user provided a target (file, directory, or glob) to review, delegate to `agents/orchestrator.md`. Pass the full user request (target + any flags). The orchestrator handles argument parsing, deployment context detection, calibration injection, and reviewer launch.
 
-When the orchestrator finishes, its output contains: deployment context (level + detection method), reviewer used, calibration status, `--adversarial` flag value, and `--batch`/`--no-batch` override. The review report is now in the conversation — proceed to Step 1.
+When the orchestrator finishes, it emits an `--- ORCHESTRATOR COMPLETE ---` block with context values and ends with `--- PROCEED TO STEP 1 ---`. Parse that block for: deployment context (level + detection method), reviewer used, calibration status, `--adversarial` flag value, and `--batch`/`--no-batch` override.
+
+**CRITICAL: Do not stop here.** The review report is now in the conversation. Immediately proceed to Step 1 — do not summarize the review, do not ask the user what to do next, do not treat the reviewer's output as the end of your task. Your task is the walkthrough, not the review. The review was just the input. Continue now.
 
 If no target was provided (walkthrough-only mode), parse `--adversarial` and `--batch`/`--no-batch` from the user's invocation and skip directly to Step 1.
 
