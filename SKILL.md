@@ -17,7 +17,7 @@ You are conducting an interactive, point-by-point walkthrough of review findings
 
 ## Step 0: Orchestrate (only when a target is provided)
 
-If the user provided a target (file, directory, or glob) to review, delegate to `agents/orchestrator.md`. Pass the full user request (target + any flags). The orchestrator handles argument parsing, deployment context detection, calibration injection, and reviewer launch.
+If the user provided a target (file, directory, or glob) to review, delegate to `agents/orchestrator.md`. Pass the full user request (target + any flags). The orchestrator handles argument parsing, deployment context detection, **target project memory loading**, calibration injection, and reviewer launch.
 
 The orchestrator launches the reviewer as a **foreground Agent** — not inline in the current context. This is critical: the reviewer's work (file reads, sub-agents, bash commands) executes in a separate context window, and only the condensed findings report comes back. This prevents the reviewer from exhausting the context budget that the walkthrough needs.
 
@@ -97,6 +97,7 @@ Start from the code, not from the review report. Read the relevant source and fo
 Assess the finding critically and honestly:
 - Is the issue real, or is it a false positive?
 - Is it relevant given the project's context and conventions?
+- Does it contradict a prior calibration rule from the target project's memory? If the orchestrator loaded prior calibration (from `feedback_review_severity.md` or similar), check each finding against those rules. A finding that matches a previously dismissed pattern should be REJECTED immediately with "Prior calibration: <rule>" as reason — do not re-litigate patterns the author has already validated.
 - Is the severity appropriate?
 - Is the suggested fix (if any) the right approach?
 - If the finding flags a real issue but does not propose a concrete fix, formulate one yourself — turn "potential issue with X" into "do Y at line Z to fix X". If after evaluation the finding is purely informational (no code change warranted), it is not noise — assign it NOTED.
@@ -237,6 +238,9 @@ After both actions, briefly report what was persisted (e.g., "2 items added to D
 - When a finding is valid, fix it without editorializing.
 - If unsure whether a point is valid, say so and let the user decide.
 - **Language rule:** mirror the user's language in all output (detect from their messages). All examples in this file are in English — translate them to match the user's language at runtime. This is the single source of truth for language behavior; no other section overrides it.
+  - **Translate:** all reasoning, paraphrases, assessments, questions to the user, wrap-up prose, and status reports. The user must be able to read the entire walkthrough in their language without switching mental context.
+  - **Keep in English (do not translate):** verdict labels (ACCEPTED, REJECTED, NOTED, DEFERRED), mechanism names (Author's defense, Cross-model L1/L2, QA auto, Lateral think, Evaluate, Drift), severity tier names from the review report (Blocking, Important, Suggestion), and column headers in the wrap-up table (Finding, Status, Mode). These are technical identifiers, not prose.
+  - **Transparency lines** follow a hybrid pattern: the mechanism name stays in English, the result is in the user's language. Example (FR): "Author's defense : appliquee — la defense ne tient pas." Not: "Author's defense: applied — defense does not hold."
 
 ## Ouroboros integration
 
